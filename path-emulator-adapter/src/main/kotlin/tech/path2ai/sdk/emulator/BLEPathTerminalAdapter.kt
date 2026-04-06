@@ -216,8 +216,15 @@ class BLEPathTerminalAdapter(
                                     )
                                 )
                             }
-                        } else {
+                        } else if (g === gatt) {
+                            // Only handle disconnect for the active GATT — stale callbacks from
+                            // a previous connection attempt must be ignored to prevent spurious
+                            // disconnects when connectToDevice() is called concurrently.
+                            log("Active GATT disconnected — handling disconnect")
                             handleDisconnect()
+                        } else {
+                            log("Ignoring disconnect from stale GATT (not the active connection)")
+                            g.close()
                         }
                     }
                 }
