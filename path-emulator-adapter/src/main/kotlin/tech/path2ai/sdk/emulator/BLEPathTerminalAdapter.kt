@@ -37,7 +37,7 @@ class BLEPathTerminalAdapter(
         private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         private const val SCAN_TIMEOUT_MS = 5_000L
-        private const val CONNECT_TIMEOUT_MS = 5_000L
+        private const val CONNECT_TIMEOUT_MS = 15_000L
         private const val RESPONSE_TIMEOUT_MS = 30_000L
         private const val CHUNK_SIZE = 20
         private const val CHUNK_DELAY_MS = 20L

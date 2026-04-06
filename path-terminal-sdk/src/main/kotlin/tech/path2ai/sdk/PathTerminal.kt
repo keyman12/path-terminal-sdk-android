@@ -42,8 +42,21 @@ class PathTerminal(private var adapter: PathTerminalAdapter) {
         adapter.onHardwareDisconnect = {
             emit(PathTerminalEvent.ConnectionStateChanged(ConnectionState.Disconnected))
         }
-        adapter.connect(device)
-        emit(PathTerminalEvent.ConnectionStateChanged(ConnectionState.Connected))
+        try {
+            adapter.connect(device)
+            emit(PathTerminalEvent.ConnectionStateChanged(ConnectionState.Connected))
+        } catch (e: Exception) {
+            // Emit disconnected so the UI doesn't stay frozen at Connecting
+            emit(PathTerminalEvent.ConnectionStateChanged(ConnectionState.Disconnected))
+            val pathError = e as? tech.path2ai.sdk.core.PathError
+                ?: tech.path2ai.sdk.core.PathError(
+                    code = tech.path2ai.sdk.core.PathErrorCode.CONNECTIVITY,
+                    message = e.message ?: "Connection failed",
+                    recoverable = true
+                )
+            emit(PathTerminalEvent.Error(pathError))
+            throw e
+        }
     }
 
     suspend fun disconnect() {
