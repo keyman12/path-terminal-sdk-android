@@ -437,7 +437,10 @@ class BLEPathTerminalAdapter(
 
     // ── Command Send/Receive ─────────────────────────────────────────────────
 
-    private suspend fun sendCommand(command: String): String = mutex.withLock {
+    private suspend fun sendCommand(
+        command: String,
+        timeoutMs: Long = RESPONSE_TIMEOUT_MS
+    ): String = mutex.withLock {
         val g = gatt ?: throw PathError(code = PathErrorCode.CONNECTIVITY, message = "Not connected", recoverable = true)
         val rx = rxCharacteristic ?: throw PathError(code = PathErrorCode.CONNECTIVITY, message = "RX characteristic not available", recoverable = false)
 
@@ -470,17 +473,17 @@ class BLEPathTerminalAdapter(
             if (offset < payload.size) delay(CHUNK_DELAY_MS)
         }
 
-        log("All chunks sent, waiting for response (timeout=${RESPONSE_TIMEOUT_MS / 1000}s)...")
+        log("All chunks sent, waiting for response (timeout=${timeoutMs / 1000}s)...")
 
         // Wait for response
         try {
-            withTimeout(RESPONSE_TIMEOUT_MS) { deferred.await() }
+            withTimeout(timeoutMs) { deferred.await() }
         } catch (e: TimeoutCancellationException) {
             pendingResponse = null
             log("RESPONSE TIMEOUT — no data received from terminal")
             throw PathError(
                 code = PathErrorCode.TIMEOUT,
-                message = "No response from terminal after ${RESPONSE_TIMEOUT_MS / 1000}s",
+                message = "No response from terminal after ${timeoutMs / 1000}s",
                 recoverable = true
             )
         }
@@ -503,16 +506,26 @@ class BLEPathTerminalAdapter(
     // ── Transactions ─────────────────────────────────────────────────────────
 
     override suspend fun sale(request: TransactionRequest): TransactionResult {
+        val args = mutableMapOf<String, Any?>(
+            "amount" to request.amountMinor,
+            "currency" to request.currency,
+            "tip" to request.tipMinor
+        )
+        // Wire v1.1: when set, the terminal shows a customer-facing tip
+        // selection screen before the card tap. The chosen tip lands in
+        // the result's tipAmountMinor / tipPercentX10.
+        if (request.promptForTip) args["prompt_for_tip"] = true
+
         val cmd = buildCommandJson(
             reqId = request.envelope.requestId,
             cmd = "Sale",
-            args = mapOf(
-                "amount" to request.amountMinor,
-                "currency" to request.currency,
-                "tip" to request.tipMinor
-            )
+            args = args
         )
-        val raw = sendCommand(cmd)
+        // A sale that prompts for a tip can legitimately take up to ~56s on
+        // the emulator (30s tip window + 26s tap window). Bump the timeout
+        // from the 30s default with a bit of headroom.
+        val timeoutMs = if (request.promptForTip) 75_000L else RESPONSE_TIMEOUT_MS
+        val raw = sendCommand(cmd, timeoutMs = timeoutMs)
         return EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
     }
 

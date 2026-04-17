@@ -31,26 +31,49 @@ internal object EmulatorWireJsonMapping {
         val txnId = obj["txn_id"]?.jsonPrimitive?.contentOrNull
         val amount = obj["amount"]?.jsonPrimitive?.intOrNull ?: 0
         val currency = obj["currency"]?.jsonPrimitive?.contentOrNull ?: "GBP"
-        val tip = obj["tip"]?.jsonPrimitive?.intOrNull
         val cardLastFour = obj["card_last_four"]?.jsonPrimitive?.contentOrNull
         val receiptAvailable = obj["receipt_available"]?.jsonPrimitive?.booleanOrNull ?: false
         val errorMessage = obj["error"]?.jsonPrimitive?.contentOrNull
 
-        // The emulator returns "approved" for both Sales and Refunds.
-        // Map to REFUNDED when it's a Refund command so the SDK layer gets the correct state.
-        val state = if (cmd == "Refund" && txnStatus == "approved") {
-            TransactionState.REFUNDED
-        } else {
-            mapTxnStatus(txnStatus)
+        // Wire v1.1 breakdown fields — populated by the emulator for sales
+        // that went through the customer tip-prompt. Older emulators that
+        // don't know about these will leave them null and we'll fall back.
+        val legacyTip = obj["tip"]?.jsonPrimitive?.intOrNull
+        val tipAmount = obj["tip_amount"]?.jsonPrimitive?.intOrNull ?: legacyTip ?: 0
+        val totalAmount = obj["total_amount"]?.jsonPrimitive?.intOrNull ?: amount
+        val baseAmount = obj["base_amount"]?.jsonPrimitive?.intOrNull ?: (totalAmount - tipAmount)
+        val tipPercentX10 = obj["tip_percent_x10"]?.jsonPrimitive?.intOrNull
+        // Keep legacy `tipMinor` populated only when there's actually a tip
+        val legacyTipReflected = if (tipAmount > 0) tipAmount else null
+
+        // Surface the emulator's "customer_timeout" error code as its own
+        // state + error code so SDK consumers can tell "customer walked away"
+        // apart from a generic decline or a hardware timeout.
+        val isCustomerTimeout = status == "error" && errorMessage?.lowercase() == "customer_timeout"
+
+        val state = when {
+            isCustomerTimeout -> TransactionState.CUSTOMER_TIMEOUT
+            // The emulator returns "approved" for both Sales and Refunds; map
+            // the Refund case to REFUNDED so the SDK layer sees the right state.
+            cmd == "Refund" && txnStatus == "approved" -> TransactionState.REFUNDED
+            else -> mapTxnStatus(txnStatus)
         }
 
-        val pathError = if (status == "error" || state == TransactionState.FAILED || state == TransactionState.DECLINED) {
-            PathError(
-                code = if (state == TransactionState.DECLINED) PathErrorCode.DECLINE else PathErrorCode.TERMINAL_FAULT,
-                message = errorMessage ?: "Transaction $txnStatus",
-                recoverable = false
+        val pathError = when {
+            isCustomerTimeout -> PathError(
+                code = PathErrorCode.CUSTOMER_TIMEOUT,
+                message = obj["message"]?.jsonPrimitive?.contentOrNull
+                    ?: errorMessage ?: "Customer did not respond",
+                recoverable = true
             )
-        } else null
+            status == "error" || state == TransactionState.FAILED || state == TransactionState.DECLINED ->
+                PathError(
+                    code = if (state == TransactionState.DECLINED) PathErrorCode.DECLINE else PathErrorCode.TERMINAL_FAULT,
+                    message = errorMessage ?: "Transaction $txnStatus",
+                    recoverable = false
+                )
+            else -> null
+        }
 
         return TransactionResult(
             transactionId = txnId,
@@ -58,7 +81,11 @@ internal object EmulatorWireJsonMapping {
             state = state,
             amountMinor = amount,
             currency = currency,
-            tipMinor = tip,
+            tipMinor = legacyTipReflected,
+            baseAmountMinor = baseAmount,
+            tipAmountMinor = tipAmount,
+            totalAmountMinor = totalAmount,
+            tipPercentX10 = tipPercentX10,
             cardLastFour = cardLastFour,
             receiptAvailable = receiptAvailable,
             timestampUtc = Instant.now().toString(),

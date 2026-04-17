@@ -101,4 +101,72 @@ class MockPathTerminalAdapterTests {
         val adapter = MockPathTerminalAdapter()
         assertThrows<PathError> { adapter.getReceiptData("txn-1") }
     }
+
+    // ── Simulated tip responses ───────────────────────────────────────────
+
+    @Test
+    fun `sale with tip prompt no tip`() = runTest {
+        val adapter = MockPathTerminalAdapter()
+        adapter.simulatedTipResponse = MockPathTerminalAdapter.SimulatedTipResponse.NoTip
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        val request = TransactionRequest.sale(
+            amountMinor = 1946, currency = "GBP", promptForTip = true, envelope = envelope
+        )
+        val r = adapter.sale(request)
+        assertEquals(TransactionState.APPROVED, r.state)
+        assertEquals(1946, r.baseAmountMinor)
+        assertEquals(0, r.tipAmountMinor)
+        assertEquals(1946, r.totalAmountMinor)
+        assertNull(r.tipPercentX10)
+    }
+
+    @Test
+    fun `sale with tip prompt picked preset`() = runTest {
+        val adapter = MockPathTerminalAdapter()
+        // Customer picked 15% on £19.46 — tip = ceil(1946 * 15 / 100) = 292
+        adapter.simulatedTipResponse = MockPathTerminalAdapter.SimulatedTipResponse.PickedPreset(
+            percentX10 = 150,
+            amountMinor = 292
+        )
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        val request = TransactionRequest.sale(
+            amountMinor = 1946, currency = "GBP", promptForTip = true, envelope = envelope
+        )
+        val r = adapter.sale(request)
+        assertEquals(TransactionState.APPROVED, r.state)
+        assertEquals(1946, r.baseAmountMinor)
+        assertEquals(292, r.tipAmountMinor)
+        assertEquals(2238, r.totalAmountMinor)
+        assertEquals(2238, r.amountMinor)  // legacy amount = card-charged total
+        assertEquals(150, r.tipPercentX10)
+    }
+
+    @Test
+    fun `sale with tip prompt customer timeout`() = runTest {
+        val adapter = MockPathTerminalAdapter()
+        adapter.simulatedTipResponse = MockPathTerminalAdapter.SimulatedTipResponse.CustomerTimeout
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        val request = TransactionRequest.sale(
+            amountMinor = 1946, currency = "GBP", promptForTip = true, envelope = envelope
+        )
+        val r = adapter.sale(request)
+        assertEquals(TransactionState.CUSTOMER_TIMEOUT, r.state)
+        assertEquals(PathErrorCode.CUSTOMER_TIMEOUT, r.error?.code)
+        assertEquals(true, r.error?.recoverable)
+    }
+
+    /** simulatedTipResponse must be ignored when promptForTip is false. */
+    @Test
+    fun `sale without tip prompt ignores simulation`() = runTest {
+        val adapter = MockPathTerminalAdapter()
+        adapter.simulatedTipResponse = MockPathTerminalAdapter.SimulatedTipResponse.PickedPreset(200, 999)
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        val request = TransactionRequest.sale(
+            amountMinor = 1946, currency = "GBP", envelope = envelope
+        )
+        val r = adapter.sale(request)
+        assertEquals(TransactionState.APPROVED, r.state)
+        // Pass-through — no tip added.
+        assertEquals(0, r.tipAmountMinor)
+    }
 }

@@ -10,6 +10,14 @@ enum class PathErrorCode(val value: String) {
     @SerialName("capability") CAPABILITY("capability"),
     @SerialName("terminal_busy") TERMINAL_BUSY("terminal_busy"),
     @SerialName("timeout") TIMEOUT("timeout"),
+
+    /**
+     * The customer abandoned a customer-facing prompt on the terminal
+     * (e.g. the tip selection screen). Different from [TIMEOUT], which
+     * covers hardware/network level timeouts.
+     */
+    @SerialName("customer_timeout") CUSTOMER_TIMEOUT("customer_timeout"),
+
     @SerialName("user_cancelled") USER_CANCELLED("user_cancelled"),
     @SerialName("decline") DECLINE("decline"),
     @SerialName("terminal_fault") TERMINAL_FAULT("terminal_fault"),

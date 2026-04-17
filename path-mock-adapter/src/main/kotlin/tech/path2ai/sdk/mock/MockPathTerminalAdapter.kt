@@ -18,6 +18,37 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
 
     var refundResult: Result<TransactionResult>? = null
 
+    /**
+     * How the fake "customer" should respond to a Sale whose request has
+     * [TransactionRequest.promptForTip] == true. Lets tests exercise the
+     * tipping happy path and the customer-timeout path without needing
+     * real hardware.
+     *
+     * Ignored when [saleResult] is set (that takes precedence), or when
+     * the Sale request doesn't ask for a tip prompt.
+     */
+    sealed class SimulatedTipResponse {
+        /** Customer picked "No tip". Result has tipAmountMinor == 0. */
+        object NoTip : SimulatedTipResponse()
+
+        /**
+         * Customer picked a preset. [percentX10] is 100 / 125 / 150 / 200
+         * (i.e. 10 / 12.5 / 15 / 20 percent) and [amountMinor] is the
+         * rounded-up tip amount in minor units.
+         */
+        data class PickedPreset(val percentX10: Int, val amountMinor: Int) : SimulatedTipResponse()
+
+        /** Customer walked away — emitted as CUSTOMER_TIMEOUT state + error. */
+        object CustomerTimeout : SimulatedTipResponse()
+    }
+
+    /**
+     * Controls what the mock "customer" does when a Sale request asks for a
+     * tip prompt. Defaults to [SimulatedTipResponse.NoTip] so existing tests
+     * that don't care about tipping stay green.
+     */
+    var simulatedTipResponse: SimulatedTipResponse = SimulatedTipResponse.NoTip
+
     var capabilitiesResult: Result<DeviceCapabilities> =
         Result.success(DeviceCapabilities(commands = listOf("Sale", "Refund", "Cancel"), nfc = true, display = true))
 
@@ -60,7 +91,74 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
 
     override suspend fun sale(request: TransactionRequest): TransactionResult {
         maybeDelay()
-        return saleResult?.getOrThrow() ?: TransactionResult(
+        // Explicit override from the test wins.
+        saleResult?.let { return it.getOrThrow() }
+
+        val now = java.time.Instant.now().toString()
+
+        // If the request asks for a tip prompt, act out whichever response
+        // was configured on the mock. Lets tests exercise each tipping branch
+        // (happy-path tip, no-tip, customer walks away) deterministically.
+        if (request.promptForTip) {
+            return when (val r = simulatedTipResponse) {
+                SimulatedTipResponse.CustomerTimeout -> TransactionResult(
+                    transactionId = null,
+                    requestId = request.envelope.requestId,
+                    state = TransactionState.CUSTOMER_TIMEOUT,
+                    amountMinor = request.amountMinor,
+                    currency = request.currency,
+                    tipMinor = null,
+                    baseAmountMinor = request.amountMinor,
+                    tipAmountMinor = 0,
+                    totalAmountMinor = request.amountMinor,
+                    tipPercentX10 = null,
+                    cardLastFour = null,
+                    receiptAvailable = false,
+                    timestampUtc = now,
+                    error = PathError(
+                        code = PathErrorCode.CUSTOMER_TIMEOUT,
+                        message = "Customer did not respond to tip prompt",
+                        recoverable = true
+                    )
+                )
+                SimulatedTipResponse.NoTip -> TransactionResult(
+                    transactionId = "mock-txn-${System.currentTimeMillis()}",
+                    requestId = request.envelope.requestId,
+                    state = TransactionState.APPROVED,
+                    amountMinor = request.amountMinor,
+                    currency = request.currency,
+                    tipMinor = null,
+                    baseAmountMinor = request.amountMinor,
+                    tipAmountMinor = 0,
+                    totalAmountMinor = request.amountMinor,
+                    tipPercentX10 = null,
+                    cardLastFour = "1234",
+                    receiptAvailable = true,
+                    timestampUtc = now
+                )
+                is SimulatedTipResponse.PickedPreset -> {
+                    val total = request.amountMinor + r.amountMinor
+                    TransactionResult(
+                        transactionId = "mock-txn-${System.currentTimeMillis()}",
+                        requestId = request.envelope.requestId,
+                        state = TransactionState.APPROVED,
+                        amountMinor = total,
+                        currency = request.currency,
+                        tipMinor = r.amountMinor,
+                        baseAmountMinor = request.amountMinor,
+                        tipAmountMinor = r.amountMinor,
+                        totalAmountMinor = total,
+                        tipPercentX10 = r.percentX10,
+                        cardLastFour = "1234",
+                        receiptAvailable = true,
+                        timestampUtc = now
+                    )
+                }
+            }
+        }
+
+        // No tip prompt — default pass-through (preserves prior behaviour).
+        return TransactionResult(
             transactionId = "mock-txn-${System.currentTimeMillis()}",
             requestId = request.envelope.requestId,
             state = TransactionState.APPROVED,
@@ -68,7 +166,7 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
             currency = request.currency,
             cardLastFour = "1234",
             receiptAvailable = true,
-            timestampUtc = java.time.Instant.now().toString()
+            timestampUtc = now
         )
     }
 

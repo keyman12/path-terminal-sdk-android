@@ -2,6 +2,7 @@ package tech.path2ai.sdk.emulator
 
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
+import tech.path2ai.sdk.core.PathErrorCode
 import tech.path2ai.sdk.core.TransactionState
 
 class EmulatorWireJsonMappingTests {
@@ -83,5 +84,69 @@ class EmulatorWireJsonMappingTests {
         assertEquals("GBP", result.currency)
         assertNull(result.cardLastFour)
         assertFalse(result.receiptAvailable)
+    }
+
+    // ── Tipping (wire v1.1) ──────────────────────────────────────────────
+
+    @Test
+    fun `sale with tip breakdown`() {
+        val json = """{"status":"approved","amount":2141,"base_amount":1946,"tip_amount":195,"total_amount":2141,"tip_percent_x10":100,"currency":"GBP","txn_id":"txn-tip-1"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-tip-1")
+        assertEquals(TransactionState.APPROVED, r.state)
+        assertEquals(2141, r.amountMinor)
+        assertEquals(1946, r.baseAmountMinor)
+        assertEquals(195, r.tipAmountMinor)
+        assertEquals(2141, r.totalAmountMinor)
+        assertEquals(100, r.tipPercentX10)
+        // Legacy tipMinor reflects the tip when present
+        assertEquals(195, r.tipMinor)
+    }
+
+    @Test
+    fun `sale no tip`() {
+        val json = """{"status":"approved","amount":1946,"base_amount":1946,"tip_amount":0,"total_amount":1946,"currency":"GBP","txn_id":"txn-notip-1"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-notip-1")
+        assertEquals(TransactionState.APPROVED, r.state)
+        assertEquals(1946, r.baseAmountMinor)
+        assertEquals(0, r.tipAmountMinor)
+        assertEquals(1946, r.totalAmountMinor)
+        assertNull(r.tipPercentX10)
+        // Legacy tipMinor stays null when no tip added
+        assertNull(r.tipMinor)
+    }
+
+    @Test
+    fun `sale customer timeout`() {
+        val json = """{"status":"error","error":"customer_timeout","message":"Customer did not respond to tip prompt","base_amount":1946,"currency":"GBP"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-timeout-1")
+        assertEquals(TransactionState.CUSTOMER_TIMEOUT, r.state)
+        assertNotNull(r.error)
+        assertEquals(PathErrorCode.CUSTOMER_TIMEOUT, r.error?.code)
+        assertEquals(true, r.error?.recoverable)
+    }
+
+    @Test
+    fun `back-compat no breakdown fields`() {
+        // Older emulator firmware — only `amount`, no base_amount / tip_amount.
+        val json = """{"status":"approved","amount":1946,"currency":"GBP","txn_id":"txn-legacy"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-legacy-1")
+        assertEquals(TransactionState.APPROVED, r.state)
+        assertEquals(1946, r.amountMinor)
+        // No breakdown from the wire → base = total, tip = 0
+        assertEquals(1946, r.baseAmountMinor)
+        assertEquals(0, r.tipAmountMinor)
+        assertEquals(1946, r.totalAmountMinor)
+        assertNull(r.tipPercentX10)
+    }
+
+    @Test
+    fun `back-compat legacy tip field`() {
+        // Pre-v1.1 firmware — only the legacy `tip` field, no explicit base.
+        val json = """{"status":"approved","amount":2141,"tip":195,"currency":"GBP","txn_id":"txn-legacy-tip"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-legacy-tip")
+        assertEquals(195, r.tipAmountMinor)
+        // Without explicit base_amount we derive: base = total - tip
+        assertEquals(1946, r.baseAmountMinor)
+        assertEquals(2141, r.totalAmountMinor)
     }
 }

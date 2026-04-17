@@ -14,6 +14,14 @@ enum class TransactionState(val value: String) {
     @SerialName("declined") DECLINED("declined"),
     @SerialName("cancelled") CANCELLED("cancelled"),
     @SerialName("timed_out") TIMED_OUT("timed_out"),
+
+    /**
+     * Customer didn't respond to a customer-facing prompt (e.g. the tip
+     * screen) within the allowed time. Distinct from [TIMED_OUT], which is
+     * a hardware / network level timeout.
+     */
+    @SerialName("customer_timeout") CUSTOMER_TIMEOUT("customer_timeout"),
+
     @SerialName("failed") FAILED("failed"),
     @SerialName("reversal_pending") REVERSAL_PENDING("reversal_pending"),
     @SerialName("reversed") REVERSED("reversed"),
