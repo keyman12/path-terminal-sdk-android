@@ -36,6 +36,17 @@ Every model / factory method / error code here has an iOS counterpart. If you ad
 
 Silent drift between iOS and Android SDKs is the #1 way agentic installs start failing.
 
+### Schema sync check
+
+The iOS SDK repo has a sync check that compares `schemas/*.json` against both Swift and Kotlin data classes. Run it from that repo:
+
+```bash
+cd ../Path-terminal-sdk-IOS
+node scripts/check-sdk-schema-sync.mjs
+```
+
+This repo being a sibling clone at `../path-terminal-sdk-android` is the expected layout. A CI workflow on the iOS SDK repo runs the same check automatically — any PR that introduces drift between Swift / Kotlin / schemas will fail there.
+
 ## Commands
 
 ```bash
