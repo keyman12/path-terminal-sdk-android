@@ -36,9 +36,9 @@ dependencyResolutionManagement {
 `app/build.gradle.kts`:
 ```kotlin
 dependencies {
-    implementation("com.github.keyman12.path-terminal-sdk-android:path-core-models:v1.3")
-    implementation("com.github.keyman12.path-terminal-sdk-android:path-terminal-sdk:v1.3")
-    implementation("com.github.keyman12.path-terminal-sdk-android:path-emulator-adapter:v1.3")
+    implementation("com.github.keyman12.path-terminal-sdk-android:path-core-models:v1.4")
+    implementation("com.github.keyman12.path-terminal-sdk-android:path-terminal-sdk:v1.4")
+    implementation("com.github.keyman12.path-terminal-sdk-android:path-emulator-adapter:v1.4")
 }
 ```
 
@@ -66,8 +66,8 @@ launcher.launch(arrayOf(
 ```kotlin
 val bleAdapter = BLEPathTerminalAdapter(
     context = context,
-    sdkVersion = "0.1.0",
-    adapterVersion = "0.1.0"
+    sdkVersion = "1.4.0",
+    adapterVersion = "1.4.0"
 )
 val terminal = PathTerminal(bleAdapter)
 ```
@@ -107,8 +107,8 @@ terminal.connect(devices.first())
 ```kotlin
 val envelope = RequestEnvelope.create(
     merchantReference = "ORDER-001",
-    sdkVersion = "0.1.0",
-    adapterVersion = "0.1.0"
+    sdkVersion = "1.4.0",
+    adapterVersion = "1.4.0"
 )
 val request = TransactionRequest.sale(
     amountMinor = 450,          // pence
@@ -138,8 +138,8 @@ if (result.isApproved && result.receiptAvailable) {
 ```kotlin
 val refundEnvelope = RequestEnvelope.create(
     merchantReference = "REFUND-001",
-    sdkVersion = "0.1.0",
-    adapterVersion = "0.1.0"
+    sdkVersion = "1.4.0",
+    adapterVersion = "1.4.0"
 )
 val refundRequest = TransactionRequest.refund(
     amountMinor = 450,

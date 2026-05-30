@@ -21,8 +21,8 @@ import java.util.UUID
 @SuppressLint("MissingPermission")
 class BLEPathTerminalAdapter(
     private val context: Context,
-    private val sdkVersion: String = "0.1.0",
-    private val adapterVersion: String = "0.1.0",
+    private val sdkVersion: String = "1.4.0",
+    private val adapterVersion: String = "1.4.0",
     private val deviceNameFilter: ((String) -> Boolean)? = null,
     private val onLog: ((String) -> Unit)? = null
 ) : PathTerminalAdapter {

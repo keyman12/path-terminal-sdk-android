@@ -1,5 +1,5 @@
 package tech.path2ai.sdk
 
 object PathTerminalSDK {
-    const val VERSION = "0.1.0"
+    const val VERSION = "1.4.0"
 }
