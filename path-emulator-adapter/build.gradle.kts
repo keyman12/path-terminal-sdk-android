@@ -21,6 +21,13 @@ android {
     kotlinOptions {
         jvmTarget = "21"
     }
+
+    testOptions {
+        unitTests.all { it.useJUnitPlatform() }
+        // EmulatorWireJsonMapping logs via android.util.Log — return defaults
+        // in JVM unit tests instead of throwing "not mocked".
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

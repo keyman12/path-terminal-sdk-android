@@ -21,6 +21,14 @@ interface PathTerminalAdapter {
     /** Execute refund transaction */
     suspend fun refund(request: TransactionRequest): TransactionResult
 
+    /**
+     * Void (fully reverse) an approved sale. No amount, no card presentation —
+     * the request's [TransactionRequest.originalTransactionId] identifies the
+     * sale to reverse. Success state is [TransactionState.REVERSED].
+     * (Named voidTransaction because `void` is a Java keyword.)
+     */
+    suspend fun voidTransaction(request: TransactionRequest): TransactionResult
+
     /** Get device capabilities */
     suspend fun getCapabilities(): DeviceCapabilities
 

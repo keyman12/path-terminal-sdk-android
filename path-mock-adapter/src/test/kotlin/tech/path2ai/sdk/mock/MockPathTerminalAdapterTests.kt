@@ -169,4 +169,39 @@ class MockPathTerminalAdapterTests {
         // Pass-through — no tip added.
         assertEquals(0, r.tipAmountMinor)
     }
+
+    @Test
+    fun `default void returns reversed`() = runTest {
+        val adapter = MockPathTerminalAdapter()
+        val request = TransactionRequest.voidTransaction(
+            originalTransactionId = "orig-txn-1",
+            envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        )
+        val result = adapter.voidTransaction(request)
+        assertEquals(TransactionState.REVERSED, result.state)
+        assertTrue(result.isApproved)
+    }
+
+    @Test
+    fun `void uses configured result`() = runTest {
+        val adapter = MockPathTerminalAdapter()
+        adapter.voidResult = Result.success(
+            TransactionResult(
+                transactionId = "void-d",
+                requestId = "req-x",
+                state = TransactionState.DECLINED,
+                amountMinor = 0,
+                currency = "GBP",
+                timestampUtc = java.time.Instant.now().toString(),
+                error = PathError(code = PathErrorCode.DECLINE, message = "already_voided", adapterErrorCode = "already_voided")
+            )
+        )
+        val request = TransactionRequest.voidTransaction(
+            originalTransactionId = "orig-txn-1",
+            envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        )
+        val result = adapter.voidTransaction(request)
+        assertEquals(TransactionState.DECLINED, result.state)
+        assertEquals("already_voided", result.error?.adapterErrorCode)
+    }
 }

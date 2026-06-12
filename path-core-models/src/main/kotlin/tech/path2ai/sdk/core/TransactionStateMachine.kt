@@ -18,11 +18,23 @@ class TransactionStateMachine(
     companion object {
         private val validTransitions: Map<TransactionState, Set<TransactionState>> = mapOf(
             TransactionState.CREATED to setOf(TransactionState.PENDING_DEVICE),
+            // PENDING_DEVICE may resolve straight to a final state: adapters
+            // return one result per operation (they don't emit the
+            // intermediate CARD_*/AUTHORIZING steps), so the facade's
+            // PENDING_DEVICE → result.state transition must be valid or the
+            // final TransactionStateChanged event is silently dropped.
             TransactionState.PENDING_DEVICE to setOf(
                 TransactionState.CARD_PRESENTED,
                 TransactionState.CARD_READ,
                 TransactionState.AUTHORIZING,
-                TransactionState.REFUND_PENDING
+                TransactionState.REFUND_PENDING,
+                TransactionState.REVERSAL_PENDING,
+                TransactionState.APPROVED,
+                TransactionState.DECLINED,
+                TransactionState.CANCELLED,
+                TransactionState.TIMED_OUT,
+                TransactionState.CUSTOMER_TIMEOUT,
+                TransactionState.FAILED
             ),
             TransactionState.CARD_PRESENTED to setOf(TransactionState.CARD_READ),
             TransactionState.CARD_READ to setOf(TransactionState.AUTHORIZING),
@@ -38,8 +50,19 @@ class TransactionStateMachine(
                 TransactionState.REFUND_PENDING,
                 TransactionState.SETTLEMENT_PENDING
             ),
-            TransactionState.REVERSAL_PENDING to setOf(TransactionState.REVERSED),
-            TransactionState.REFUND_PENDING to setOf(TransactionState.REFUNDED),
+            TransactionState.REVERSAL_PENDING to setOf(
+                TransactionState.REVERSED,
+                TransactionState.DECLINED,
+                TransactionState.TIMED_OUT,
+                TransactionState.FAILED
+            ),
+            TransactionState.REFUND_PENDING to setOf(
+                TransactionState.REFUNDED,
+                TransactionState.DECLINED,
+                TransactionState.CANCELLED,
+                TransactionState.TIMED_OUT,
+                TransactionState.FAILED
+            ),
             TransactionState.SETTLEMENT_PENDING to setOf(TransactionState.SETTLED)
         )
     }

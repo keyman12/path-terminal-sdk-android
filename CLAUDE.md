@@ -22,7 +22,7 @@ The Kotlin SDK partners consume via **JitPack** from their Android EPOS apps. Fe
 
 - `path-core-models/` — `PathTerminal`, `TransactionRequest`, `TransactionResult`, `PathError`, `ReceiptData`, etc. (parallel to iOS `PathCoreModels`)
 - `path-terminal-sdk/` — the main SDK entry point
-- `path-emulator-adapter/` — BLE Nordic UART adapter talking to the Pico emulator
+- `path-emulator-adapter/` — adapters talking to the Pico emulator: `BLEPathTerminalAdapter` (Nordic UART) and `TcpPathTerminalAdapter` (emulator Wi-Fi mode, TCP :9700)
 - `path-mock-adapter/` — mock adapter for tests
 - `path-diagnostics/` — diagnostic helpers
 

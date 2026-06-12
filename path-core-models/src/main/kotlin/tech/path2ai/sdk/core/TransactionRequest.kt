@@ -54,5 +54,24 @@ data class TransactionRequest(
             originalRequestId = originalRequestId,
             envelope = envelope
         )
+
+        /**
+         * Void (full reversal) of an approved sale. No amount is sent — the
+         * terminal reverses the original transaction in full, mirroring how
+         * semi-integrated terminals behave (e.g. Verifone processVoid).
+         * [amountMinor] is fixed at 0 and ignored by adapters.
+         */
+        fun voidTransaction(
+            originalTransactionId: String,
+            currency: String = "GBP",
+            envelope: RequestEnvelope
+        ): TransactionRequest = TransactionRequest(
+            amountMinor = 0,
+            currency = currency,
+            tipMinor = null,
+            originalTransactionId = originalTransactionId,
+            originalRequestId = null,
+            envelope = envelope
+        )
     }
 }

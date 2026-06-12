@@ -34,6 +34,9 @@ internal object EmulatorWireJsonMapping {
         val cardLastFour = obj["card_last_four"]?.jsonPrimitive?.contentOrNull
         val receiptAvailable = obj["receipt_available"]?.jsonPrimitive?.booleanOrNull ?: false
         val errorMessage = obj["error"]?.jsonPrimitive?.contentOrNull
+        // Wire v1.2: declines carry a machine-readable reason (do_not_honour,
+        // already_voided, original_not_approved, ...)
+        val declineReason = obj["decline_reason"]?.jsonPrimitive?.contentOrNull
 
         // Wire v1.1 breakdown fields — populated by the emulator for sales
         // that went through the customer tip-prompt. Older emulators that
@@ -69,7 +72,10 @@ internal object EmulatorWireJsonMapping {
             status == "error" || state == TransactionState.FAILED || state == TransactionState.DECLINED ->
                 PathError(
                     code = if (state == TransactionState.DECLINED) PathErrorCode.DECLINE else PathErrorCode.TERMINAL_FAULT,
-                    message = errorMessage ?: "Transaction $txnStatus",
+                    message = errorMessage
+                        ?: declineReason?.let { "Transaction declined ($it)" }
+                        ?: "Transaction $txnStatus",
+                    adapterErrorCode = declineReason ?: (if (status == "error") errorMessage else null),
                     recoverable = false
                 )
             else -> null
@@ -128,6 +134,24 @@ internal object EmulatorWireJsonMapping {
             status = obj["status"]?.jsonPrimitive?.contentOrNull ?: "",
             retainMessage = obj["retain_message"]?.jsonPrimitive?.contentOrNull
         )
+    }
+
+    /**
+     * Build a wire-protocol command line. Shared by the BLE and TCP emulator
+     * adapters so the request format can never drift between transports.
+     */
+    fun buildCommandJson(reqId: String, cmd: String, args: Map<String, Any?>): String {
+        val argsJson = args.entries
+            .filter { it.value != null }
+            .joinToString(",") { (k, v) ->
+                when (v) {
+                    is String -> "\"$k\":\"$v\""
+                    is Number -> "\"$k\":$v"
+                    is Boolean -> "\"$k\":$v"
+                    else -> "\"$k\":\"$v\""
+                }
+            }
+        return "{\"req_id\":\"$reqId\",\"cmd\":\"$cmd\",\"args\":{$argsJson}}"
     }
 
     private fun mapTxnStatus(status: String): TransactionState {

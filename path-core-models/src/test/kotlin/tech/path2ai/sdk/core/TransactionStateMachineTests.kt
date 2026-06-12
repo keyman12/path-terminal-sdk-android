@@ -156,4 +156,50 @@ class TransactionStateMachineTests {
             assertTrue(sm.isInTerminalState)
         }
     }
+
+    // ---- v1.5: adapters resolve PENDING_DEVICE straight to a final state ----
+
+    @Test
+    fun `pending device resolves directly to approved`() {
+        val sm = TransactionStateMachine()
+        assertTrue(sm.transition(TransactionState.PENDING_DEVICE))
+        assertTrue(sm.transition(TransactionState.APPROVED))
+        assertTrue(sm.isApproved)
+    }
+
+    @Test
+    fun `pending device resolves directly to declined`() {
+        val sm = TransactionStateMachine()
+        assertTrue(sm.transition(TransactionState.PENDING_DEVICE))
+        assertTrue(sm.transition(TransactionState.DECLINED))
+        assertTrue(sm.isInTerminalState)
+    }
+
+    @Test
+    fun `void flow via reversal pending`() {
+        val sm = TransactionStateMachine()
+        assertTrue(sm.transition(TransactionState.PENDING_DEVICE))
+        assertTrue(sm.transition(TransactionState.REVERSAL_PENDING))
+        assertTrue(sm.transition(TransactionState.REVERSED))
+        assertTrue(sm.isApproved)
+        assertTrue(sm.isInTerminalState)
+    }
+
+    @Test
+    fun `void declined from reversal pending`() {
+        val sm = TransactionStateMachine()
+        sm.transition(TransactionState.PENDING_DEVICE)
+        sm.transition(TransactionState.REVERSAL_PENDING)
+        assertTrue(sm.transition(TransactionState.DECLINED))
+        assertFalse(sm.isApproved)
+    }
+
+    @Test
+    fun `refund declined from refund pending`() {
+        val sm = TransactionStateMachine()
+        sm.transition(TransactionState.PENDING_DEVICE)
+        sm.transition(TransactionState.REFUND_PENDING)
+        assertTrue(sm.transition(TransactionState.DECLINED))
+        assertTrue(sm.isInTerminalState)
+    }
 }

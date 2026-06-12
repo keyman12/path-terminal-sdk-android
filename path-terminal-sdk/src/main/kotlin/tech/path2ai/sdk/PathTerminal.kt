@@ -94,6 +94,32 @@ class PathTerminal(private var adapter: PathTerminalAdapter) {
         return result
     }
 
+    /**
+     * Void (fully reverse) an approved sale. The request must carry
+     * [TransactionRequest.originalTransactionId] — build it with
+     * [TransactionRequest.Companion.voidTransaction]. No amount, no card
+     * presentation; success state is [TransactionState.REVERSED]. Like
+     * [refund], the receipt is not auto-fetched — call [getReceiptData]
+     * with the result's transactionId when needed.
+     */
+    suspend fun voidTransaction(request: TransactionRequest): TransactionResult {
+        if (request.originalTransactionId == null) {
+            throw PathError(
+                code = PathErrorCode.VALIDATION,
+                message = "voidTransaction requires originalTransactionId (use TransactionRequest.voidTransaction)",
+                recoverable = false
+            )
+        }
+        val sm = TransactionStateMachine { t ->
+            emit(PathTerminalEvent.TransactionStateChanged(t.to))
+        }
+        sm.transition(TransactionState.PENDING_DEVICE)
+        sm.transition(TransactionState.REVERSAL_PENDING)
+        val result = adapter.voidTransaction(request)
+        sm.transition(result.state)
+        return result
+    }
+
     suspend fun cancelActiveTransaction() {
         adapter.cancelActiveTransaction()
         emit(PathTerminalEvent.TransactionStateChanged(TransactionState.CANCELLED))

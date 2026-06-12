@@ -18,6 +18,8 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
 
     var refundResult: Result<TransactionResult>? = null
 
+    var voidResult: Result<TransactionResult>? = null
+
     /**
      * How the fake "customer" should respond to a Sale whose request has
      * [TransactionRequest.promptForTip] == true. Lets tests exercise the
@@ -176,6 +178,19 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
             transactionId = "mock-ref-${System.currentTimeMillis()}",
             requestId = request.envelope.requestId,
             state = TransactionState.REFUNDED,
+            amountMinor = request.amountMinor,
+            currency = request.currency,
+            receiptAvailable = false,
+            timestampUtc = java.time.Instant.now().toString()
+        )
+    }
+
+    override suspend fun voidTransaction(request: TransactionRequest): TransactionResult {
+        maybeDelay()
+        return voidResult?.getOrThrow() ?: TransactionResult(
+            transactionId = "mock-void-${System.currentTimeMillis()}",
+            requestId = request.envelope.requestId,
+            state = TransactionState.REVERSED,
             amountMinor = request.amountMinor,
             currency = request.currency,
             receiptAvailable = false,

@@ -21,8 +21,8 @@ import java.util.UUID
 @SuppressLint("MissingPermission")
 class BLEPathTerminalAdapter(
     private val context: Context,
-    private val sdkVersion: String = "1.4.0",
-    private val adapterVersion: String = "1.4.0",
+    private val sdkVersion: String = "1.5.0",
+    private val adapterVersion: String = "1.5.0",
     private val deviceNameFilter: ((String) -> Boolean)? = null,
     private val onLog: ((String) -> Unit)? = null
 ) : PathTerminalAdapter {
@@ -489,19 +489,8 @@ class BLEPathTerminalAdapter(
         }
     }
 
-    private fun buildCommandJson(reqId: String, cmd: String, args: Map<String, Any?>): String {
-        val argsJson = args.entries
-            .filter { it.value != null }
-            .joinToString(",") { (k, v) ->
-                when (v) {
-                    is String -> "\"$k\":\"$v\""
-                    is Number -> "\"$k\":$v"
-                    is Boolean -> "\"$k\":$v"
-                    else -> "\"$k\":\"$v\""
-                }
-            }
-        return "{\"req_id\":\"$reqId\",\"cmd\":\"$cmd\",\"args\":{$argsJson}}"
-    }
+    private fun buildCommandJson(reqId: String, cmd: String, args: Map<String, Any?>): String =
+        EmulatorWireJsonMapping.buildCommandJson(reqId, cmd, args)
 
     // ── Transactions ─────────────────────────────────────────────────────────
 
@@ -536,8 +525,24 @@ class BLEPathTerminalAdapter(
             args = mapOf(
                 "amount" to request.amountMinor,
                 "currency" to request.currency,
-                "original_req_id" to request.originalTransactionId
+                // Wire v1.2 link field. The legacy original_req_id is kept for
+                // pre-1.2 firmware (which ignored it anyway — it carried the
+                // txn_id under the wrong name).
+                "original_txn_id" to request.originalTransactionId,
+                "original_req_id" to request.originalRequestId
             )
+        )
+        val raw = sendCommand(cmd)
+        return EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+    }
+
+    override suspend fun voidTransaction(request: TransactionRequest): TransactionResult {
+        // Void needs no card tap — it completes immediately on the terminal,
+        // so the default 30s timeout is generous.
+        val cmd = buildCommandJson(
+            reqId = request.envelope.requestId,
+            cmd = "Void",
+            args = mapOf("txn_id" to request.originalTransactionId)
         )
         val raw = sendCommand(cmd)
         return EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)

@@ -149,4 +149,56 @@ class EmulatorWireJsonMappingTests {
         assertEquals(1946, r.baseAmountMinor)
         assertEquals(2141, r.totalAmountMinor)
     }
+
+    // ---- wire v1.2: void + declined-with-reason ----
+
+    @Test
+    fun `maps void reversed response`() {
+        val json = """{"type":"result","cmd":"Void","status":"reversed","txn_id":"void-001","original_txn_id":"sale-001","amount":2141,"base_amount":1946,"tip_amount":195,"total_amount":2141,"currency":"GBP","card_last_four":"1234","auth_code":"112233","receipt_available":true}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-void-1")
+        assertEquals(TransactionState.REVERSED, r.state)
+        assertEquals("void-001", r.transactionId)
+        assertEquals(2141, r.amountMinor)
+        assertTrue(r.receiptAvailable)
+        assertTrue(r.isApproved)
+        assertNull(r.error)
+    }
+
+    @Test
+    fun `maps declined sale with decline_reason and no auth code`() {
+        val json = """{"type":"result","cmd":"Sale","status":"declined","decline_reason":"do_not_honour","txn_id":"sale-d1","amount":1946,"base_amount":1946,"tip_amount":0,"total_amount":1946,"currency":"GBP","card_last_four":"1234","receipt_available":true}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-decl-1")
+        assertEquals(TransactionState.DECLINED, r.state)
+        assertEquals(PathErrorCode.DECLINE, r.error?.code)
+        assertEquals("do_not_honour", r.error?.adapterErrorCode)
+        // Declines still produce receipts on v1.2 firmware
+        assertTrue(r.receiptAvailable)
+        assertFalse(r.isApproved)
+    }
+
+    @Test
+    fun `maps declined refund`() {
+        val json = """{"type":"result","cmd":"Refund","status":"declined","decline_reason":"do_not_honour","txn_id":"ref-d1","amount":500,"currency":"GBP","receipt_available":true}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-decl-2")
+        // The Refund->REFUNDED special case must not swallow declines
+        assertEquals(TransactionState.DECLINED, r.state)
+        assertEquals(PathErrorCode.DECLINE, r.error?.code)
+    }
+
+    @Test
+    fun `maps void declined already_voided`() {
+        val json = """{"type":"result","cmd":"Void","status":"declined","decline_reason":"already_voided","original_txn_id":"sale-001","amount":2141,"currency":"GBP","receipt_available":false}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-void-2")
+        assertEquals(TransactionState.DECLINED, r.state)
+        assertEquals("already_voided", r.error?.adapterErrorCode)
+    }
+
+    @Test
+    fun `maps void error transaction_not_found`() {
+        val json = """{"type":"result","cmd":"Void","status":"error","error":"transaction_not_found","message":"Original transaction not found"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-void-3")
+        assertEquals(TransactionState.FAILED, r.state)
+        assertEquals(PathErrorCode.TERMINAL_FAULT, r.error?.code)
+        assertEquals("transaction_not_found", r.error?.adapterErrorCode)
+    }
 }
