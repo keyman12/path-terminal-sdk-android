@@ -4,7 +4,7 @@ You are working in the **Android Kotlin SDK** repo. Canonical remote: `https://g
 
 ## Ecosystem at a glance
 
-One of **7 repos** in the Path semi-integrated terminal system:
+One of **8 repos** in the Path semi-integrated terminal system:
 
 | iOS | Android | Cross-platform |
 |---|---|---|
