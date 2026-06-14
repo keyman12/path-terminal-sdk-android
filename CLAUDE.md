@@ -58,6 +58,20 @@ This repo being a sibling clone at `../path-terminal-sdk-android` is the expecte
 ./gradlew :path-core-models:test
 ```
 
+## Building this SDK from the demo (composite build)
+
+`Path-epos-demo-sdk-android` consumes this repo **from source** via Gradle
+`includeBuild("../path-terminal-sdk-android")` (not JitPack). Gradle then configures **this repo too**
+as a real project, so **this repo needs its own `local.properties`** with the Android SDK path, or
+the demo build fails with `SDK location not found … path-terminal-sdk-android/local.properties`:
+
+```
+sdk.dir=/Users/davidkey/Library/Android/sdk
+```
+
+(`local.properties` is per-machine and gitignored.) Same SDK-as-sibling rule across iOS / Android /
+Windows: `Path-PSDK-TestHarnesses/ENVIRONMENTS.md` §3.
+
 ## Versioning
 
 Tags drive JitPack. When you cut a new version:
