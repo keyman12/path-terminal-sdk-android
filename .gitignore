@@ -11,3 +11,7 @@ local.properties
 
 # Kotlin toolchain session/error cache
 .kotlin/
+
+# macOS + Claude Code local config
+.DS_Store
+.claude/
