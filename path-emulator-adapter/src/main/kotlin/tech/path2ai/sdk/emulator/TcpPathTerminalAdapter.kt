@@ -27,6 +27,11 @@ import java.net.Socket
 class TcpPathTerminalAdapter(
     private val host: String,
     private val port: Int = DEFAULT_PORT,
+    // Login credentials sent on connect() — the emulator now performs the same
+    // connect-time login handshake as a real terminal (protocol v1.3).
+    private val username: String = "user",
+    private val password: String = "",
+    private val shift: String = "",
     private val onLog: ((String) -> Unit)? = null
 ) : PathTerminalAdapter {
 
@@ -93,7 +98,6 @@ class TcpPathTerminalAdapter(
             )
         }
         socket = s
-        _isConnected = true
         log("Connected — starting reader")
 
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -113,6 +117,18 @@ class TcpPathTerminalAdapter(
                 handleDisconnect()
             }
         }
+
+        // Log in before declaring the connection ready — mirrors a real terminal
+        // (and the Verifone backend), which require a login handshake on connect.
+        // The reader is already running to receive the result.
+        try {
+            login()
+        } catch (e: Exception) {
+            disconnectInternal(notify = false)
+            throw e
+        }
+        _isConnected = true
+        log("Logged in — ready")
     }
 
     override suspend fun disconnect() {
@@ -202,9 +218,48 @@ class TcpPathTerminalAdapter(
         }
     }
 
+    // ── Login (connect-time handshake, protocol v1.3) ────────────────────────
+
+    private suspend fun login() {
+        val cmd = EmulatorWireJsonMapping.buildCommandJson(
+            reqId = java.util.UUID.randomUUID().toString(),
+            cmd = "Login",
+            args = mapOf(
+                "user_id" to username,   // legacy field — pre-v1.3 firmware still acks this
+                "username" to username,
+                "password" to password,
+                "shift" to shift
+            )
+        )
+        log("Login as '$username' (shift '$shift')...")
+        val raw = sendCommand(cmd, timeoutMs = 10_000L)  // login is a quick handshake
+        if (!raw.contains("\"status\": \"success\"") && !raw.contains("\"status\":\"success\"")) {
+            throw PathError(
+                code = PathErrorCode.CONNECTIVITY,
+                message = "Emulator login was not accepted: ${raw.take(160)}",
+                recoverable = true
+            )
+        }
+        log("Logged in")
+    }
+
     // ── Transactions (same wire JSON as the BLE adapter) ─────────────────────
 
-    override suspend fun sale(request: TransactionRequest): TransactionResult {
+    /**
+     * Session ceremony: the emulator processes transactions directly, but each
+     * is bracketed with a logged session open/close so the lifecycle mirrors the
+     * Verifone backend (which opens/closes a PSDK session per payment).
+     */
+    private suspend fun <T> withSession(op: String, block: suspend () -> T): T {
+        log("Session opened ($op)")
+        try {
+            return block()
+        } finally {
+            log("Session ended ($op)")
+        }
+    }
+
+    override suspend fun sale(request: TransactionRequest): TransactionResult = withSession("SALE") {
         val args = mutableMapOf<String, Any?>(
             "amount" to request.amountMinor,
             "currency" to request.currency,
@@ -219,10 +274,10 @@ class TcpPathTerminalAdapter(
         )
         val timeoutMs = if (request.promptForTip) TIP_PROMPT_RESPONSE_TIMEOUT_MS else RESPONSE_TIMEOUT_MS
         val raw = sendCommand(cmd, timeoutMs = timeoutMs)
-        return EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+        EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
     }
 
-    override suspend fun refund(request: TransactionRequest): TransactionResult {
+    override suspend fun refund(request: TransactionRequest): TransactionResult = withSession("REFUND") {
         val cmd = EmulatorWireJsonMapping.buildCommandJson(
             reqId = request.envelope.requestId,
             cmd = "Refund",
@@ -234,17 +289,17 @@ class TcpPathTerminalAdapter(
             )
         )
         val raw = sendCommand(cmd)
-        return EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+        EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
     }
 
-    override suspend fun voidTransaction(request: TransactionRequest): TransactionResult {
+    override suspend fun voidTransaction(request: TransactionRequest): TransactionResult = withSession("VOID") {
         val cmd = EmulatorWireJsonMapping.buildCommandJson(
             reqId = request.envelope.requestId,
             cmd = "Void",
             args = mapOf("txn_id" to request.originalTransactionId)
         )
         val raw = sendCommand(cmd)
-        return EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+        EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
     }
 
     override suspend fun getTransactionStatus(requestId: String): TransactionResult {

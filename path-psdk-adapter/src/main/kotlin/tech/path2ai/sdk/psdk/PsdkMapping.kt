@@ -61,6 +61,24 @@ internal object PsdkMapping {
                     adapterErrorCode = eventStatus.toString(),
                     recoverable = true
                 )
+                // -24 TXN NOT SUPPORTED (AGPA status 807 / the "T807" the
+                // terminal shows): the device recognises the transaction type
+                // but isn't provisioned for it. The common case is a tip-bearing
+                // sale ("Sale with Tip") on a terminal whose product config has
+                // tipping disabled. Surface an actionable message — enabling it
+                // is a terminal-side (VHQ) config change, not an SDK fix.
+                -24 -> TransactionState.FAILED to PathError(
+                    code = PathErrorCode.UNSUPPORTED_OPERATION,
+                    message = if (tipMinor > 0) {
+                        "Tipping isn't enabled on this terminal — the gratuity transaction was " +
+                            "rejected as not supported (T807). Enable the tip transaction type in " +
+                            "the terminal configuration (VHQ) to take gratuities."
+                    } else {
+                        "The terminal rejected this transaction as not supported (T807)."
+                    },
+                    adapterErrorCode = eventStatus.toString(),
+                    recoverable = false
+                )
                 else -> TransactionState.FAILED to PathError(
                     code = PathErrorCode.TERMINAL_FAULT,
                     message = "Transaction did not complete (PSDK status $eventStatus, no auth result)",
