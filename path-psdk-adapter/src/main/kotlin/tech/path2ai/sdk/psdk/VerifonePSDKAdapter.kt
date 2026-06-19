@@ -521,7 +521,16 @@ class VerifonePSDKAdapter(
         bridge.paymentDeferred = deferred
         bridge.linkedOpInFlight = true
         log("$op started (linked to $originalId) ...")
-        if (isVoid) t.processVoid(p) else t.processRefund(p)
+        if (isVoid) {
+            // A void is a host-side reversal with no card tap, so the terminal shows nothing on its
+            // own. Push a status message BEFORE processVoid — the only reliable window a POS message
+            // appears ahead of the receipt (PSDK-harness gotcha 10). Mirrors the Windows adapter.
+            showOnTerminal("VOID IN PROGRESS\nPlease wait")
+            delay(2000)
+            t.processVoid(p)
+        } else {
+            t.processRefund(p)
+        }
         val result = try {
             awaitCompletion(deferred, bridge, request, baseMinor, 0, null, linked = true)
         } finally {
@@ -529,6 +538,12 @@ class VerifonePSDKAdapter(
         }
         endSessionQuietly()
         return result
+    }
+
+    /** Push a short status message to the terminal's customer display (best-effort). */
+    private fun showOnTerminal(text: String, dt: DisplayType = DisplayType.DISPSTATUS) {
+        try { tm?.presentCustomerContent2(text, ContentType.TEXT, 0, dt) }
+        catch (e: Exception) { log("present on terminal: ${e.message}") }
     }
 
     private fun presentationMethods() = arrayListOf(
