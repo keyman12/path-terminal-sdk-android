@@ -44,6 +44,19 @@ interface PathTerminalAdapter {
     /** Cancel the in-flight transaction */
     suspend fun cancelActiveTransaction()
 
+    /**
+     * Set (or clear) branding to show on the terminal's customer-facing display
+     * while it is idle — a merchant logo shown on connect and re-shown after
+     * every transaction ("attract mode"). Pass null to turn it off.
+     *
+     * The adapter owns the choreography (it already owns the per-transaction
+     * session): it pushes the content when idle and re-pushes it once each sale
+     * / refund / void completes. Backends without a customer display treat this
+     * as a no-op. Safe to call before connecting — the content is remembered and
+     * shown on the next connect.
+     */
+    suspend fun setIdleBranding(content: CustomerDisplayContent?)
+
     /** Whether currently connected to a device */
     val isConnected: Boolean
 

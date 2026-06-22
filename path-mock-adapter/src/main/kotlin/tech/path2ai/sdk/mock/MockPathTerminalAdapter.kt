@@ -234,6 +234,15 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
         cancelError?.let { throw it }
     }
 
+    /** Records the last branding set, for assertions; no display in the mock. */
+    var lastIdleBranding: CustomerDisplayContent? = null
+        private set
+
+    override suspend fun setIdleBranding(content: CustomerDisplayContent?) {
+        maybeDelay()
+        lastIdleBranding = content
+    }
+
     /** Simulate a hardware-initiated disconnect. */
     fun simulateHardwareDisconnect() {
         _isConnected = false

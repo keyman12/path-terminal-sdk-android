@@ -331,6 +331,10 @@ class TcpPathTerminalAdapter(
         sendCommand(cmd)
     }
 
+    // The Pico emulator owns its own welcome screen and exposes no
+    // customer-content push in the wire protocol — idle branding is a no-op.
+    override suspend fun setIdleBranding(content: CustomerDisplayContent?) {}
+
     override suspend fun getCapabilities(): DeviceCapabilities {
         throw PathError(
             code = PathErrorCode.UNSUPPORTED_OPERATION,

@@ -1,6 +1,7 @@
 package tech.path2ai.sdk.psdk
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import com.verifone.payment_sdk.*
 import kotlinx.coroutines.*
@@ -76,6 +77,11 @@ class VerifonePSDKAdapter(
     override val isConnected: Boolean get() = _isConnected
 
     override var onHardwareDisconnect: (() -> Unit)? = null
+
+    // Idle customer-display branding (attract mode). When set, the logo is
+    // pushed on connect and re-pushed after every transaction (gotcha 11).
+    @Volatile
+    private var idleBranding: CustomerDisplayContent? = null
 
     private fun log(msg: String) {
         Log.d(TAG, msg)
@@ -248,6 +254,8 @@ class VerifonePSDKAdapter(
         login()
         _isConnected = true
         log("CONNECTED + logged in (${config.host})")
+        // Paint the merchant logo straight away if attract mode is configured.
+        if (idleBranding != null) showIdleBranding()
     }
 
     /** Runs initializeFromValues and waits for the init status. */
@@ -394,6 +402,60 @@ class VerifonePSDKAdapter(
         recoverable = true
     )
 
+    // ── Idle customer-display branding (attract mode, gotcha 11) ──────────────
+
+    override suspend fun setIdleBranding(content: CustomerDisplayContent?): Unit =
+        withContext(psdkDispatcher) {
+            idleBranding = content
+            if (!_isConnected) return@withContext
+            // Show (or clear) immediately if the terminal is idle. If a
+            // transaction holds the lock, its post-transaction re-show will pick
+            // up the new content, so just storing it above is enough.
+            if (txnMutex.tryLock()) {
+                try {
+                    if (content == null) endSessionQuietly() else showIdleBranding()
+                } finally {
+                    txnMutex.unlock()
+                }
+            }
+        }
+
+    /**
+     * Push the idle branding to the customer screen. Needs a session open
+     * (gotcha 11), which it leaves open so the logo stays up until the next
+     * transaction reuses it. No-op when branding is off. Callers run on
+     * [psdkDispatcher].
+     */
+    private suspend fun showIdleBranding() {
+        val content = idleBranding ?: return
+        val t = tm ?: return
+        try {
+            ensureSession()
+            val res = t.presentCustomerContent2(
+                brandingHtml(content), ContentType.HTML, 0, DisplayType.DISPSTATUS
+            )
+            log("idle branding pushed to customer display (status ${res?.status})")
+        } catch (e: Exception) {
+            log("idle branding push failed: ${e.message}")
+        }
+    }
+
+    /** HTML wrapper with the logo embedded as a base64 image (proven on the VP100). */
+    private fun brandingHtml(c: CustomerDisplayContent): String {
+        val b64 = Base64.encodeToString(c.imageBytes, Base64.NO_WRAP)
+        val caption = c.caption?.takeIf { it.isNotBlank() }?.let {
+            "<div style=\"font-family:sans-serif;font-size:20px;margin-top:14px;color:#222\">" +
+                escapeHtml(it) + "</div>"
+        } ?: ""
+        return "<html><body style=\"margin:0;padding:0;text-align:center\">" +
+            "<div style=\"margin-top:40px\">" +
+            "<img src=\"data:image/png;base64,$b64\" width=\"220\"/>$caption</div>" +
+            "</body></html>"
+    }
+
+    private fun escapeHtml(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
     // ── Transactions ─────────────────────────────────────────────────────────
 
     override suspend fun sale(request: TransactionRequest): TransactionResult =
@@ -473,7 +535,9 @@ class VerifonePSDKAdapter(
         t.startPayment(p)
         val result = awaitCompletion(deferred, bridge, request, baseMinor, tipMinor, tipPercentX10, linked = false)
         endSessionQuietly()
-        maybeRecoverWedge(result, bridge)
+        // Re-show the idle logo unless a wedge recovery took over the connection
+        // (it re-shows the logo itself once it has logged back in).
+        if (!maybeRecoverWedge(result, bridge)) showIdleBranding()
         return result
     }
 
@@ -537,6 +601,7 @@ class VerifonePSDKAdapter(
             bridge.linkedOpInFlight = false
         }
         endSessionQuietly()
+        showIdleBranding()
         return result
     }
 
@@ -623,9 +688,9 @@ class VerifonePSDKAdapter(
      * re-init → login) runs in the background so the NEXT sale works either
      * way. Cheap, idempotent, never retries a payment.
      */
-    private fun maybeRecoverWedge(result: TransactionResult, bridge: Bridge) {
-        if (result.state != TransactionState.CANCELLED) return
-        if (bridge.lastTransactionMessage?.contains(WEDGE_SIGNATURE, ignoreCase = true) != true) return
+    private fun maybeRecoverWedge(result: TransactionResult, bridge: Bridge): Boolean {
+        if (result.state != TransactionState.CANCELLED) return false
+        if (bridge.lastTransactionMessage?.contains(WEDGE_SIGNATURE, ignoreCase = true) != true) return false
         log("possible display wedge (cancelled at '$WEDGE_SIGNATURE') — background reconnect cycle")
         CoroutineScope(psdkDispatcher).launch {
             try {
@@ -638,6 +703,8 @@ class VerifonePSDKAdapter(
                     login()
                     _isConnected = true
                     log("wedge recovery complete — terminal ready")
+                    // The teardown also cleared the customer screen — re-paint it.
+                    if (idleBranding != null) showIdleBranding()
                 } else {
                     log("wedge recovery failed (init $st) — manual reconnect needed")
                     onHardwareDisconnect?.invoke()
@@ -647,6 +714,7 @@ class VerifonePSDKAdapter(
                 onHardwareDisconnect?.invoke()
             }
         }
+        return true
     }
 
     private suspend fun <T> runExclusive(op: String, block: suspend () -> T): T {

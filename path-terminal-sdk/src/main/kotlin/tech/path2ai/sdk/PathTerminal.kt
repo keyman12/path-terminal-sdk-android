@@ -125,6 +125,16 @@ class PathTerminal(private var adapter: PathTerminalAdapter) {
         emit(PathTerminalEvent.TransactionStateChanged(TransactionState.CANCELLED))
     }
 
+    /**
+     * Set (or clear) the idle customer-display branding (a merchant logo shown
+     * on connect and re-shown between transactions). Pass null to turn it off.
+     * No-op on backends without a customer screen. See
+     * [PathTerminalAdapter.setIdleBranding].
+     */
+    suspend fun setIdleBranding(content: CustomerDisplayContent?) {
+        adapter.setIdleBranding(content)
+    }
+
     suspend fun getTransactionStatus(requestId: String): TransactionResult {
         return adapter.getTransactionStatus(requestId)
     }
