@@ -634,9 +634,24 @@ class BLEPathTerminalAdapter(
         sendCommand(cmd)
     }
 
-    // The Pico emulator owns its own welcome screen and exposes no
-    // customer-content push in the wire protocol — idle branding is a no-op.
-    override suspend fun setIdleBranding(content: CustomerDisplayContent?) {}
+    // Push (or clear) the merchant logo on the emulator's customer screen via
+    // the SetIdleBranding wire command — the loopback twin of the Verifone
+    // customer display. Hash-gated so an unchanged logo isn't re-sent (slow on
+    // BLE). Best-effort: a failure (e.g. older firmware without the command)
+    // is logged, not fatal.
+    override suspend fun setIdleBranding(content: CustomerDisplayContent?) {
+        if (gatt == null) return
+        try {
+            val info = sendCommand(buildCommandJson(java.util.UUID.randomUUID().toString(), "GetDeviceInfo", emptyMap()))
+            val current = EmulatorBranding.parseBrandingHash(info)
+            EmulatorBranding.apply(content, current) { cmd, args ->
+                sendCommand(buildCommandJson(java.util.UUID.randomUUID().toString(), cmd, args))
+            }
+            log("idle branding ${if (content != null) "pushed to" else "cleared on"} emulator")
+        } catch (e: Exception) {
+            log("setIdleBranding (emulator) failed: ${e.message}")
+        }
+    }
 
     override suspend fun getCapabilities(): DeviceCapabilities {
         throw PathError(
