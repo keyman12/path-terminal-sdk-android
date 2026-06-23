@@ -58,6 +58,8 @@ class VerifonePSDKAdapter(
         private const val PAYMENT_TIMEOUT_S = 180L
         private const val TIP_MENU_TIMEOUT_S = 60L
         private const val WEDGE_SIGNATURE = "Awaiting Payment Type Selection"
+        // Idle-branding logo width as a % of the customer screen (attract mode).
+        private const val LOGO_WIDTH_PERCENT = 85
     }
 
     private val appContext = context.applicationContext
@@ -447,9 +449,13 @@ class VerifonePSDKAdapter(
             "<div style=\"font-family:sans-serif;font-size:20px;margin-top:14px;color:#222\">" +
                 escapeHtml(it) + "</div>"
         } ?: ""
+        // Size the logo to a share of the screen width (not a fixed pixel count)
+        // so it fills the customer display nicely on any terminal. Tune
+        // LOGO_WIDTH_PERCENT to make it larger/smaller.
         return "<html><body style=\"margin:0;padding:0;text-align:center\">" +
-            "<div style=\"margin-top:40px\">" +
-            "<img src=\"data:image/png;base64,$b64\" width=\"220\"/>$caption</div>" +
+            "<div style=\"margin-top:24px\">" +
+            "<img src=\"data:image/png;base64,$b64\" " +
+            "style=\"width:${LOGO_WIDTH_PERCENT}%;height:auto\"/>$caption</div>" +
             "</body></html>"
     }
 
