@@ -1,6 +1,10 @@
 package tech.path2ai.sdk.psdk
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.util.Base64
 import android.util.Log
 import com.verifone.payment_sdk.*
@@ -13,6 +17,7 @@ import tech.path2ai.sdk.core.PathError
 // make the Path core models win over the two star imports.
 import tech.path2ai.sdk.core.TransactionResult
 import tech.path2ai.sdk.core.ReceiptData
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -60,6 +65,11 @@ class VerifonePSDKAdapter(
         private const val WEDGE_SIGNATURE = "Awaiting Payment Type Selection"
         // Idle-branding logo width as a % of the customer screen (attract mode).
         private const val LOGO_WIDTH_PERCENT = 85
+        // Largest base64 image payload we'll push to the customer screen. The
+        // proven-good Path Cafe logo is ~27 KB base64; a photo as PNG is ~300 KB
+        // and wedges the PSDK display session. 32 KB keeps simple logos crisp as
+        // PNG while bounding everything else (mirrors the iOS adapter, gotcha 11).
+        private const val MAX_BRANDING_BASE64 = 32_000
     }
 
     private val appContext = context.applicationContext
@@ -442,9 +452,18 @@ class VerifonePSDKAdapter(
         }
     }
 
-    /** HTML wrapper with the logo embedded as a base64 image (proven on the VP100). */
+    /**
+     * HTML wrapper with the logo embedded as a base64 image (proven on the VP100).
+     *
+     * The customer-content push has to stay small — an over-large
+     * `presentCustomerContent2` wedges the PSDK display session, blanking the
+     * screen AND breaking the next transaction. A simple logo is tiny as PNG and
+     * fits; a *photograph* re-encoded as PNG is ~300 KB and blows past the limit.
+     * [brandingImagePayload] bounds it — crisp PNG when it fits, else a
+     * size-targeted JPEG (much smaller for photos). Mirrors the iOS adapter.
+     */
     private fun brandingHtml(c: CustomerDisplayContent): String {
-        val b64 = Base64.encodeToString(c.imageBytes, Base64.NO_WRAP)
+        val (b64, mime) = brandingImagePayload(c.imageBytes) ?: ("" to "image/png")
         val caption = c.caption?.takeIf { it.isNotBlank() }?.let {
             "<div style=\"font-family:sans-serif;font-size:20px;margin-top:14px;color:#222\">" +
                 escapeHtml(it) + "</div>"
@@ -454,10 +473,74 @@ class VerifonePSDKAdapter(
         // LOGO_WIDTH_PERCENT to make it larger/smaller.
         return "<html><body style=\"margin:0;padding:0;text-align:center\">" +
             "<div style=\"margin-top:24px\">" +
-            "<img src=\"data:image/png;base64,$b64\" " +
+            "<img src=\"data:$mime;base64,$b64\" " +
             "style=\"width:${LOGO_WIDTH_PERCENT}%;height:auto\"/>$caption</div>" +
             "</body></html>"
     }
+
+    /**
+     * Encode the logo as a size-bounded `(base64, mimeType)` data-URI payload,
+     * composited over white so transparency doesn't render black on the terminal.
+     * Tries a crisp PNG first (best for logos); if that's over budget — i.e. a
+     * photograph — it falls back to JPEG, lowering quality then width until the
+     * payload fits. Null only if the bytes can't be decoded as an image.
+     */
+    private fun brandingImagePayload(bytes: ByteArray): Pair<String, String>? {
+        val src = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        try {
+            // 1) Crisp PNG at display size — keeps simple logos sharp when they fit.
+            val pngBmp = scaleOverWhite(src, minOf(src.width, 480))
+            try {
+                val b64 = encodeBase64(pngBmp, Bitmap.CompressFormat.PNG, 100)
+                if (b64.length <= MAX_BRANDING_BASE64) return b64 to "image/png"
+            } finally {
+                pngBmp.recycle()
+            }
+
+            // 2) Over budget (a photo) — JPEG, shrinking quality then width until it fits.
+            for (width in intArrayOf(480, 400, 320, 256)) {
+                val scaled = scaleOverWhite(src, minOf(src.width, width))
+                try {
+                    for (quality in intArrayOf(70, 60, 50, 40, 30)) {
+                        val b64 = encodeBase64(scaled, Bitmap.CompressFormat.JPEG, quality)
+                        if (b64.length <= MAX_BRANDING_BASE64) return b64 to "image/jpeg"
+                    }
+                } finally {
+                    scaled.recycle()
+                }
+            }
+
+            // 3) Last resort — smallest JPEG we can make, even if marginally over.
+            val small = scaleOverWhite(src, minOf(src.width, 200))
+            try {
+                return encodeBase64(small, Bitmap.CompressFormat.JPEG, 30) to "image/jpeg"
+            } finally {
+                small.recycle()
+            }
+        } finally {
+            src.recycle()
+        }
+    }
+
+    /** Scale [src] down to [targetW] (never up), composited onto a white background. */
+    private fun scaleOverWhite(src: Bitmap, targetW: Int): Bitmap {
+        val scale = minOf(1.0, targetW.toDouble() / src.width)
+        val w = maxOf(1, (src.width * scale).toInt())
+        val h = maxOf(1, (src.height * scale).toInt())
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        canvas.drawColor(Color.WHITE)
+        val scaled = Bitmap.createScaledBitmap(src, w, h, true)
+        canvas.drawBitmap(scaled, 0f, 0f, null)
+        if (scaled !== src) scaled.recycle()
+        return out
+    }
+
+    private fun encodeBase64(bmp: Bitmap, format: Bitmap.CompressFormat, quality: Int): String =
+        ByteArrayOutputStream().use { out ->
+            bmp.compress(format, quality, out)
+            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        }
 
     private fun escapeHtml(s: String): String =
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
