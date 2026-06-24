@@ -73,5 +73,83 @@ data class TransactionRequest(
             originalRequestId = null,
             envelope = envelope
         )
+
+        /**
+         * Pre-authorize (place a hold on the card for [amountMinor]). The card is
+         * presented once. The result's [TransactionResult.transactionId] is the
+         * handle the EPOS stores against the order to adjust / complete / void the
+         * hold later. Success state is [TransactionState.PREAUTH_HELD].
+         */
+        fun preAuth(
+            amountMinor: Int,
+            currency: String,
+            envelope: RequestEnvelope
+        ): TransactionRequest = TransactionRequest(
+            amountMinor = amountMinor,
+            currency = currency,
+            tipMinor = null,
+            originalTransactionId = null,
+            originalRequestId = null,
+            envelope = envelope
+        )
+
+        /**
+         * Adjust an existing hold to a NEW TOTAL (not a delta): [newTotalMinor]
+         * greater than the current hold increases it, less decreases it. No card.
+         * [originalTransactionId] is the pre-auth's transaction id. A new total
+         * equal to the current hold is rejected by the terminal. Success state is
+         * [TransactionState.PREAUTH_HELD] (the hold stays open at the new total).
+         */
+        fun adjustPreAuth(
+            newTotalMinor: Int,
+            originalTransactionId: String,
+            currency: String = "GBP",
+            envelope: RequestEnvelope
+        ): TransactionRequest = TransactionRequest(
+            amountMinor = newTotalMinor,
+            currency = currency,
+            tipMinor = null,
+            originalTransactionId = originalTransactionId,
+            originalRequestId = null,
+            envelope = envelope
+        )
+
+        /**
+         * Complete (capture/settle) a held pre-auth, debiting [amountMinor] (which
+         * may be <= the current hold) and closing it. No card.
+         * [originalTransactionId] is the pre-auth's transaction id. Success state
+         * is [TransactionState.CAPTURED].
+         */
+        fun completePreAuth(
+            amountMinor: Int,
+            originalTransactionId: String,
+            currency: String = "GBP",
+            envelope: RequestEnvelope
+        ): TransactionRequest = TransactionRequest(
+            amountMinor = amountMinor,
+            currency = currency,
+            tipMinor = null,
+            originalTransactionId = originalTransactionId,
+            originalRequestId = null,
+            envelope = envelope
+        )
+
+        /**
+         * Void (release) a held pre-auth without debiting. No amount, no card.
+         * [originalTransactionId] is the pre-auth's transaction id. Success state
+         * is [TransactionState.REVERSED].
+         */
+        fun voidPreAuth(
+            originalTransactionId: String,
+            currency: String = "GBP",
+            envelope: RequestEnvelope
+        ): TransactionRequest = TransactionRequest(
+            amountMinor = 0,
+            currency = currency,
+            tipMinor = null,
+            originalTransactionId = originalTransactionId,
+            originalRequestId = null,
+            envelope = envelope
+        )
     }
 }

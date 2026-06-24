@@ -302,6 +302,61 @@ class TcpPathTerminalAdapter(
         EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
     }
 
+    // ── Pre-authorization (wire v1.5) ────────────────────────────────────────
+
+    override suspend fun preAuth(request: TransactionRequest): TransactionResult = withSession("PREAUTH") {
+        // Like a sale, the hold needs a card tap — use the card-present timeout.
+        val cmd = EmulatorWireJsonMapping.buildCommandJson(
+            reqId = request.envelope.requestId,
+            cmd = "PreAuth",
+            args = mapOf(
+                "amount" to request.amountMinor,
+                "currency" to request.currency
+            )
+        )
+        val raw = sendCommand(cmd, timeoutMs = RESPONSE_TIMEOUT_MS)
+        EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+    }
+
+    override suspend fun adjustPreAuth(request: TransactionRequest): TransactionResult = withSession("PREAUTH-ADJUST") {
+        // amountMinor is the NEW TOTAL hold (not a delta). Host-only, no card tap.
+        val cmd = EmulatorWireJsonMapping.buildCommandJson(
+            reqId = request.envelope.requestId,
+            cmd = "AdjustPreAuth",
+            args = mapOf(
+                "txn_id" to request.originalTransactionId,
+                "new_total" to request.amountMinor,
+                "currency" to request.currency
+            )
+        )
+        val raw = sendCommand(cmd)
+        EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+    }
+
+    override suspend fun completePreAuth(request: TransactionRequest): TransactionResult = withSession("PREAUTH-COMPLETE") {
+        val cmd = EmulatorWireJsonMapping.buildCommandJson(
+            reqId = request.envelope.requestId,
+            cmd = "CompletePreAuth",
+            args = mapOf(
+                "txn_id" to request.originalTransactionId,
+                "amount" to request.amountMinor,
+                "currency" to request.currency
+            )
+        )
+        val raw = sendCommand(cmd)
+        EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+    }
+
+    override suspend fun voidPreAuth(request: TransactionRequest): TransactionResult = withSession("PREAUTH-VOID") {
+        val cmd = EmulatorWireJsonMapping.buildCommandJson(
+            reqId = request.envelope.requestId,
+            cmd = "VoidPreAuth",
+            args = mapOf("txn_id" to request.originalTransactionId)
+        )
+        val raw = sendCommand(cmd)
+        EmulatorWireJsonMapping.mapResponse(raw, request.envelope.requestId)
+    }
+
     override suspend fun getTransactionStatus(requestId: String): TransactionResult {
         val cmd = EmulatorWireJsonMapping.buildCommandJson(
             reqId = java.util.UUID.randomUUID().toString(),

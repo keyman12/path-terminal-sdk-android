@@ -180,4 +180,81 @@ class PathTerminalTests {
         }
         assertEquals(PathErrorCode.VALIDATION, error.code)
     }
+
+    @Test
+    fun `preAuth returns PREAUTH_HELD and emits hold states`() = runTest {
+        val mock = MockPathTerminalAdapter()
+        val terminal = PathTerminal(mock)
+
+        val events = mutableListOf<PathTerminalEvent>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            terminal.events.collect { events.add(it) }
+        }
+
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        val request = TransactionRequest.preAuth(amountMinor = 350, currency = "GBP", envelope = envelope)
+        val result = terminal.preAuth(request)
+
+        assertEquals(TransactionState.PREAUTH_HELD, result.state)
+        val states = events.filterIsInstance<PathTerminalEvent.TransactionStateChanged>().map { it.state }
+        assertEquals(
+            listOf(TransactionState.PENDING_DEVICE, TransactionState.PREAUTH_PENDING, TransactionState.PREAUTH_HELD),
+            states
+        )
+
+        job.cancel()
+    }
+
+    @Test
+    fun `completePreAuth returns CAPTURED and emits capture states`() = runTest {
+        val mock = MockPathTerminalAdapter()
+        val terminal = PathTerminal(mock)
+
+        val events = mutableListOf<PathTerminalEvent>()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            terminal.events.collect { events.add(it) }
+        }
+
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        val request = TransactionRequest.completePreAuth(
+            amountMinor = 600, originalTransactionId = "preauth-1", envelope = envelope
+        )
+        val result = terminal.completePreAuth(request)
+
+        assertEquals(TransactionState.CAPTURED, result.state)
+        val states = events.filterIsInstance<PathTerminalEvent.TransactionStateChanged>().map { it.state }
+        assertEquals(
+            listOf(TransactionState.PENDING_DEVICE, TransactionState.CAPTURE_PENDING, TransactionState.CAPTURED),
+            states
+        )
+
+        job.cancel()
+    }
+
+    @Test
+    fun `voidPreAuth returns reversed`() = runTest {
+        val mock = MockPathTerminalAdapter()
+        val terminal = PathTerminal(mock)
+
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        val request = TransactionRequest.voidPreAuth(originalTransactionId = "preauth-1", envelope = envelope)
+        val result = terminal.voidPreAuth(request)
+
+        assertEquals(TransactionState.REVERSED, result.state)
+    }
+
+    @Test
+    fun `adjustPreAuth without originalTransactionId throws validation error`() = runTest {
+        val mock = MockPathTerminalAdapter()
+        val terminal = PathTerminal(mock)
+
+        val envelope = RequestEnvelope.create(sdkVersion = "0.1.0", adapterVersion = "0.1.0")
+        // Build a request with no original id (a plain sale) — must be rejected.
+        val request = TransactionRequest.sale(amountMinor = 600, currency = "GBP", envelope = envelope)
+
+        val error = org.junit.jupiter.api.assertThrows<PathError> {
+            terminal.adjustPreAuth(request)
+        }
+        assertEquals(PathErrorCode.VALIDATION, error.code)
+    }
 }

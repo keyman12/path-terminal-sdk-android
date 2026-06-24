@@ -36,12 +36,16 @@ internal object PsdkMapping {
         tipMinor: Long,
         currency: String,
         tipPercentX10: Int?,
-        receiptsCached: Boolean
+        receiptsCached: Boolean,
+        // The success state to use for an AUTHORIZED result. Defaults to APPROVED
+        // (a sale); pre-auth uses PREAUTH_HELD (hold/adjust) or CAPTURED (complete)
+        // — a pre-auth and its completion both come back AUTHORIZED from the PSDK.
+        approvedState: TransactionState = TransactionState.APPROVED
     ): TransactionResult {
         val totalMinor = baseMinor + tipMinor
         val authResult = payment?.authResult
         val (state, error) = when (authResult) {
-            AuthorizationResult.AUTHORIZED -> TransactionState.APPROVED to null
+            AuthorizationResult.AUTHORIZED -> approvedState to null
             AuthorizationResult.REFUNDED -> TransactionState.REFUNDED to null
             AuthorizationResult.VOIDED -> TransactionState.REVERSED to null
             AuthorizationResult.DECLINED,

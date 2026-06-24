@@ -29,6 +29,37 @@ interface PathTerminalAdapter {
      */
     suspend fun voidTransaction(request: TransactionRequest): TransactionResult
 
+    /**
+     * Pre-authorize: place a hold on the card for [TransactionRequest.amountMinor]
+     * (funds reserved, not debited). The card is presented once. Success state is
+     * [TransactionState.PREAUTH_HELD]; the result's transactionId is the handle for
+     * the follow-on operations below.
+     */
+    suspend fun preAuth(request: TransactionRequest): TransactionResult
+
+    /**
+     * Adjust a held pre-auth to a NEW TOTAL (not a delta) — see
+     * [TransactionRequest.adjustPreAuth]. No card. The request's
+     * [TransactionRequest.originalTransactionId] identifies the hold and
+     * [TransactionRequest.amountMinor] is the new total. Success state is
+     * [TransactionState.PREAUTH_HELD] (the hold stays open at the new total).
+     */
+    suspend fun adjustPreAuth(request: TransactionRequest): TransactionResult
+
+    /**
+     * Complete (capture) a held pre-auth, debiting [TransactionRequest.amountMinor]
+     * and closing it. No card. [TransactionRequest.originalTransactionId] identifies
+     * the hold. Success state is [TransactionState.CAPTURED].
+     */
+    suspend fun completePreAuth(request: TransactionRequest): TransactionResult
+
+    /**
+     * Void (release) a held pre-auth without debiting. No amount, no card.
+     * [TransactionRequest.originalTransactionId] identifies the hold. Success state
+     * is [TransactionState.REVERSED].
+     */
+    suspend fun voidPreAuth(request: TransactionRequest): TransactionResult
+
     /** Get device capabilities */
     suspend fun getCapabilities(): DeviceCapabilities
 

@@ -201,4 +201,55 @@ class EmulatorWireJsonMappingTests {
         assertEquals(PathErrorCode.TERMINAL_FAULT, r.error?.code)
         assertEquals("transaction_not_found", r.error?.adapterErrorCode)
     }
+
+    // ── Pre-authorization (wire v1.5) ────────────────────────────────────────
+
+    @Test
+    fun `maps preauth held`() {
+        val json = """{"type":"result","cmd":"PreAuth","status":"approved","txn_id":"pa-1","amount":350,"hold_amount":350,"currency":"GBP","receipt_available":true}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-pa-1")
+        assertEquals(TransactionState.PREAUTH_HELD, r.state)
+        assertEquals("pa-1", r.transactionId)
+        assertEquals(350, r.amountMinor)
+        assertNull(r.error)
+    }
+
+    @Test
+    fun `maps preauth adjust held at new total`() {
+        val json = """{"type":"result","cmd":"AdjustPreAuth","status":"approved","txn_id":"leg-2","original_txn_id":"pa-1","amount":600,"hold_amount":600,"currency":"GBP"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-pa-2")
+        assertEquals(TransactionState.PREAUTH_HELD, r.state)
+        assertEquals(600, r.amountMinor)
+    }
+
+    @Test
+    fun `maps preauth complete to captured`() {
+        val json = """{"type":"result","cmd":"CompletePreAuth","status":"approved","txn_id":"leg-3","original_txn_id":"pa-1","amount":600,"currency":"GBP"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-pa-3")
+        assertEquals(TransactionState.CAPTURED, r.state)
+        assertNull(r.error)
+    }
+
+    @Test
+    fun `maps preauth void to reversed`() {
+        val json = """{"type":"result","cmd":"VoidPreAuth","status":"reversed","txn_id":"leg-4","original_txn_id":"pa-1","amount":600,"currency":"GBP"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-pa-4")
+        assertEquals(TransactionState.REVERSED, r.state)
+    }
+
+    @Test
+    fun `maps preauth adjust no-change decline`() {
+        val json = """{"type":"result","cmd":"AdjustPreAuth","status":"declined","decline_reason":"adjustment_amount_must_be_different","original_txn_id":"pa-1","currency":"GBP"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-pa-5")
+        assertEquals(TransactionState.DECLINED, r.state)
+        assertEquals("adjustment_amount_must_be_different", r.error?.adapterErrorCode)
+    }
+
+    @Test
+    fun `maps preauth disabled decline`() {
+        val json = """{"type":"result","cmd":"PreAuth","status":"declined","decline_reason":"preauth_not_enabled","message":"Pre-authorization is not enabled on this terminal"}"""
+        val r = EmulatorWireJsonMapping.mapResponse(json, "req-pa-6")
+        assertEquals(TransactionState.DECLINED, r.state)
+        assertEquals("preauth_not_enabled", r.error?.adapterErrorCode)
+    }
 }

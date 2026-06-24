@@ -29,6 +29,8 @@ class TransactionStateMachine(
                 TransactionState.AUTHORIZING,
                 TransactionState.REFUND_PENDING,
                 TransactionState.REVERSAL_PENDING,
+                TransactionState.PREAUTH_PENDING,
+                TransactionState.CAPTURE_PENDING,
                 TransactionState.APPROVED,
                 TransactionState.DECLINED,
                 TransactionState.CANCELLED,
@@ -60,6 +62,28 @@ class TransactionStateMachine(
                 TransactionState.REFUNDED,
                 TransactionState.DECLINED,
                 TransactionState.CANCELLED,
+                TransactionState.TIMED_OUT,
+                TransactionState.FAILED
+            ),
+            // Pre-auth: place a hold (PREAUTH_PENDING -> PREAUTH_HELD) and capture
+            // it (CAPTURE_PENDING -> CAPTURED). Adjust reuses PREAUTH_PENDING ->
+            // PREAUTH_HELD; release reuses REVERSAL_PENDING -> REVERSED.
+            TransactionState.PREAUTH_PENDING to setOf(
+                TransactionState.PREAUTH_HELD,
+                TransactionState.DECLINED,
+                TransactionState.CANCELLED,
+                TransactionState.TIMED_OUT,
+                TransactionState.CUSTOMER_TIMEOUT,
+                TransactionState.FAILED
+            ),
+            TransactionState.PREAUTH_HELD to setOf(
+                TransactionState.CAPTURE_PENDING,
+                TransactionState.REVERSAL_PENDING,
+                TransactionState.PREAUTH_PENDING
+            ),
+            TransactionState.CAPTURE_PENDING to setOf(
+                TransactionState.CAPTURED,
+                TransactionState.DECLINED,
                 TransactionState.TIMED_OUT,
                 TransactionState.FAILED
             ),
@@ -101,6 +125,7 @@ class TransactionStateMachine(
             TransactionState.FAILED,
             TransactionState.REVERSED,
             TransactionState.REFUNDED,
+            TransactionState.CAPTURED,
             TransactionState.SETTLED
         )
 
@@ -110,6 +135,8 @@ class TransactionStateMachine(
             TransactionState.APPROVED,
             TransactionState.REFUNDED,
             TransactionState.REVERSED,
+            TransactionState.PREAUTH_HELD,
+            TransactionState.CAPTURED,
             TransactionState.SETTLED
         )
 }

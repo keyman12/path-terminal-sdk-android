@@ -59,6 +59,11 @@ internal object EmulatorWireJsonMapping {
             // The emulator returns "approved" for both Sales and Refunds; map
             // the Refund case to REFUNDED so the SDK layer sees the right state.
             cmd == "Refund" && txnStatus == "approved" -> TransactionState.REFUNDED
+            // Pre-auth (wire v1.5): the emulator returns "approved" for a placed
+            // hold and an adjust; "approved" for a capture; "reversed" for a
+            // release. Disambiguate by cmd so the SDK sees the right state.
+            (cmd == "PreAuth" || cmd == "AdjustPreAuth") && txnStatus == "approved" -> TransactionState.PREAUTH_HELD
+            cmd == "CompletePreAuth" && txnStatus == "approved" -> TransactionState.CAPTURED
             else -> mapTxnStatus(txnStatus)
         }
 

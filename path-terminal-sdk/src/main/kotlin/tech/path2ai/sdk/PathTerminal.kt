@@ -120,6 +120,92 @@ class PathTerminal(private var adapter: PathTerminalAdapter) {
         return result
     }
 
+    /**
+     * Pre-authorize: place a hold on the card. Build the request with
+     * [TransactionRequest.Companion.preAuth]. The card is presented once; success
+     * state is [TransactionState.PREAUTH_HELD] and the result's transactionId is
+     * the handle for [adjustPreAuth] / [completePreAuth] / [voidPreAuth]. Like a
+     * sale, the receipt is auto-fetched when available.
+     */
+    suspend fun preAuth(request: TransactionRequest): TransactionResult {
+        val sm = TransactionStateMachine { t ->
+            emit(PathTerminalEvent.TransactionStateChanged(t.to))
+        }
+        sm.transition(TransactionState.PENDING_DEVICE)
+        sm.transition(TransactionState.PREAUTH_PENDING)
+        val result = adapter.preAuth(request)
+        sm.transition(result.state)
+        val txnId = result.transactionId
+        if (result.receiptAvailable && txnId != null) {
+            try {
+                emit(PathTerminalEvent.ReceiptReady(adapter.getReceiptData(txnId)))
+            } catch (_: Exception) {
+            }
+        }
+        return result
+    }
+
+    /**
+     * Adjust a held pre-auth to a new total — build the request with
+     * [TransactionRequest.Companion.adjustPreAuth]. No card; success state is
+     * [TransactionState.PREAUTH_HELD] (the hold stays open at the new total).
+     */
+    suspend fun adjustPreAuth(request: TransactionRequest): TransactionResult {
+        requireOriginalId(request, "adjustPreAuth")
+        val sm = TransactionStateMachine { t ->
+            emit(PathTerminalEvent.TransactionStateChanged(t.to))
+        }
+        sm.transition(TransactionState.PENDING_DEVICE)
+        sm.transition(TransactionState.PREAUTH_PENDING)
+        val result = adapter.adjustPreAuth(request)
+        sm.transition(result.state)
+        return result
+    }
+
+    /**
+     * Complete (capture) a held pre-auth — build the request with
+     * [TransactionRequest.Companion.completePreAuth]. No card; success state is
+     * [TransactionState.CAPTURED].
+     */
+    suspend fun completePreAuth(request: TransactionRequest): TransactionResult {
+        requireOriginalId(request, "completePreAuth")
+        val sm = TransactionStateMachine { t ->
+            emit(PathTerminalEvent.TransactionStateChanged(t.to))
+        }
+        sm.transition(TransactionState.PENDING_DEVICE)
+        sm.transition(TransactionState.CAPTURE_PENDING)
+        val result = adapter.completePreAuth(request)
+        sm.transition(result.state)
+        return result
+    }
+
+    /**
+     * Void (release) a held pre-auth — build the request with
+     * [TransactionRequest.Companion.voidPreAuth]. No amount, no card; success
+     * state is [TransactionState.REVERSED].
+     */
+    suspend fun voidPreAuth(request: TransactionRequest): TransactionResult {
+        requireOriginalId(request, "voidPreAuth")
+        val sm = TransactionStateMachine { t ->
+            emit(PathTerminalEvent.TransactionStateChanged(t.to))
+        }
+        sm.transition(TransactionState.PENDING_DEVICE)
+        sm.transition(TransactionState.REVERSAL_PENDING)
+        val result = adapter.voidPreAuth(request)
+        sm.transition(result.state)
+        return result
+    }
+
+    private fun requireOriginalId(request: TransactionRequest, op: String) {
+        if (request.originalTransactionId == null) {
+            throw PathError(
+                code = PathErrorCode.VALIDATION,
+                message = "$op requires originalTransactionId (the pre-auth's transaction id)",
+                recoverable = false
+            )
+        }
+    }
+
     suspend fun cancelActiveTransaction() {
         adapter.cancelActiveTransaction()
         emit(PathTerminalEvent.TransactionStateChanged(TransactionState.CANCELLED))

@@ -622,7 +622,7 @@ class VerifonePSDKAdapter(
         bridge.paymentDeferred = deferred
         log("SALE ${totalMinor}p started — awaiting card/host ...")
         t.startPayment(p)
-        val result = awaitCompletion(deferred, bridge, request, baseMinor, tipMinor, tipPercentX10, linked = false)
+        val result = awaitCompletion(deferred, bridge, request, baseMinor, tipMinor, tipPercentX10)
         endSessionQuietly()
         // Re-show the idle logo unless a wedge recovery took over the connection
         // (it re-shows the logo itself once it has logged back in).
@@ -685,7 +685,138 @@ class VerifonePSDKAdapter(
             t.processRefund(p)
         }
         val result = try {
-            awaitCompletion(deferred, bridge, request, baseMinor, 0, null, linked = true)
+            awaitCompletion(deferred, bridge, request, baseMinor, 0, null)
+        } finally {
+            bridge.linkedOpInFlight = false
+        }
+        endSessionQuietly()
+        showIdleBranding()
+        return result
+    }
+
+    // ── Pre-authorization (proven on the Mac PSDK harness, 2026-06-24) ───────
+    // PRE_AUTHORIZATION reserves funds (card tap); PRE_AUTHORIZATION_UPDATE adjusts
+    // the held total (host-only, NEW TOTAL not a delta); PRE_AUTHORIZATION_COMPLETION
+    // captures (host-only). All ride startPayment with the transaction type flipped
+    // and link via appSpecificData. Void/release reuses the proven processVoid path.
+
+    override suspend fun preAuth(request: TransactionRequest): TransactionResult =
+        runExclusive("PREAUTH") { runPreAuth(request) }
+
+    override suspend fun adjustPreAuth(request: TransactionRequest): TransactionResult =
+        runExclusive("PREAUTH-ADJUST") {
+            runPreAuthFollowOn(
+                request, TransactionType.PRE_AUTHORIZATION_UPDATE, "PREAUTH-ADJUST",
+                approvedState = TransactionState.PREAUTH_HELD, refreshLink = true
+            )
+        }
+
+    override suspend fun completePreAuth(request: TransactionRequest): TransactionResult =
+        runExclusive("PREAUTH-COMPLETE") {
+            runPreAuthFollowOn(
+                request, TransactionType.PRE_AUTHORIZATION_COMPLETION, "PREAUTH-COMPLETE",
+                approvedState = TransactionState.CAPTURED, refreshLink = false
+            )
+        }
+
+    // Releasing a hold is a host reversal of the pre-auth — identical to a sale
+    // void (processVoid linked via appSpecificData), so reuse the proven path.
+    override suspend fun voidPreAuth(request: TransactionRequest): TransactionResult =
+        runExclusive("PREAUTH-VOID") { runLinkedOp(request, isVoid = true) }
+
+    private suspend fun runPreAuth(request: TransactionRequest): TransactionResult {
+        val t = tm ?: throw notConnected()
+        preflight("PREAUTH")
+        ensureSession()
+        val bridge = listener ?: throw notConnected()
+        val baseMinor = request.amountMinor.toLong()
+        val totals = AmountTotals.create(false).apply {
+            setSubtotal(PsdkMapping.minorToDecimal(baseMinor))
+            setTotal(PsdkMapping.minorToDecimal(baseMinor))
+        }
+        currentTotal = PsdkMapping.minorToDecimal(baseMinor)
+        val item = Merchandise.create().apply {
+            setName(request.envelope.merchantReference ?: "Path pre-auth")
+            setAmount(PsdkMapping.minorToDecimal(baseMinor))
+        }
+        t.basketManager?.addMerchandise(arrayListOf(item), totals)
+
+        val p = Payment.create().apply {
+            setTransactionType(TransactionType.PRE_AUTHORIZATION)   // reserve funds, don't debit
+            setRequestedAmounts(totals)
+            setRequestedPaymentType(PaymentType.CREDIT)
+            setRequestedCardPresentationMethods(presentationMethods())
+        }
+        bridge.lastTransactionMessage = null
+        val deferred = CompletableDeferred<Pair<Int, Payment?>>()
+        bridge.paymentDeferred = deferred
+        log("PREAUTH ${baseMinor}p started — awaiting card/host ...")
+        t.startPayment(p)
+        val result = awaitCompletion(
+            deferred, bridge, request, baseMinor, 0, null,
+            approvedState = TransactionState.PREAUTH_HELD,
+            linkOnStates = setOf(TransactionState.PREAUTH_HELD)   // store under this pre-auth's own txn id
+        )
+        endSessionQuietly()
+        if (!maybeRecoverWedge(result, bridge)) showIdleBranding()
+        return result
+    }
+
+    /**
+     * Host-only pre-auth follow-on (adjust or complete) via startPayment with the
+     * transaction type set. Links to the original pre-auth through its stored
+     * appSpecificData. [refreshLink] re-stores the returned token under the
+     * ORIGINAL id so a subsequent follow-on chains (used for adjust; a completion
+     * closes the hold so it doesn't).
+     */
+    private suspend fun runPreAuthFollowOn(
+        request: TransactionRequest,
+        type: TransactionType,
+        op: String,
+        approvedState: TransactionState,
+        refreshLink: Boolean
+    ): TransactionResult {
+        val t = tm ?: throw notConnected()
+        val originalId = request.originalTransactionId ?: throw PathError(
+            code = PathErrorCode.VALIDATION,
+            message = "$op requires originalTransactionId (the pre-auth's transaction id)",
+            recoverable = false
+        )
+        val link = linkStore.linkFor(originalId) ?: throw PathError(
+            code = PathErrorCode.VALIDATION,
+            message = "$op: no link token stored for pre-auth $originalId — only pre-auths placed " +
+                "through this backend can be adjusted/completed",
+            recoverable = false
+        )
+        preflight(op)
+        ensureSession()
+        val bridge = listener ?: throw notConnected()
+        val amtMinor = request.amountMinor.toLong()
+        val totals = AmountTotals.create(false).apply {
+            setTotal(PsdkMapping.minorToDecimal(amtMinor))   // COMPLETE: capture amount; ADJUST: new total
+        }
+        currentTotal = PsdkMapping.minorToDecimal(amtMinor)
+
+        val p = Payment.create().apply {
+            setTransactionType(type)
+            setAppSpecificData(link)
+            setRequestedAmounts(totals)
+            setRequestedPaymentType(PaymentType.CREDIT)
+            setRequestedCardPresentationMethods(presentationMethods())
+        }
+        bridge.lastTransactionMessage = null
+        val deferred = CompletableDeferred<Pair<Int, Payment?>>()
+        bridge.paymentDeferred = deferred
+        bridge.linkedOpInFlight = true
+        log("$op started (linked to $originalId) → ${amtMinor}p ...")
+        t.startPayment(p)
+        val result = try {
+            awaitCompletion(
+                deferred, bridge, request, amtMinor, 0, null,
+                approvedState = approvedState,
+                linkOnStates = if (refreshLink) setOf(TransactionState.PREAUTH_HELD) else emptySet(),
+                linkKey = originalId
+            )
         } finally {
             bridge.linkedOpInFlight = false
         }
@@ -712,7 +843,14 @@ class VerifonePSDKAdapter(
         baseMinor: Long,
         tipMinor: Long,
         tipPercentX10: Int?,
-        linked: Boolean
+        // Which AUTHORIZED state to map to (sale=APPROVED, pre-auth=PREAUTH_HELD/CAPTURED).
+        approvedState: TransactionState = TransactionState.APPROVED,
+        // Result states that should persist the appSpecificData link token. Sale +
+        // pre-auth/adjust store it; refund/void/complete don't (REFUNDED/REVERSED/
+        // CAPTURED aren't listed). linkKey overrides the storage key — pre-auth
+        // follow-ons store under the ORIGINAL pre-auth id, not the new leg's id.
+        linkOnStates: Set<TransactionState> = setOf(TransactionState.APPROVED),
+        linkKey: String? = null
     ): TransactionResult {
         val (status, payment) = try {
             withTimeout(TimeUnit.SECONDS.toMillis(PAYMENT_TIMEOUT_S)) { deferred.await() }
@@ -754,17 +892,22 @@ class VerifonePSDKAdapter(
             tipMinor = tipMinor,
             currency = request.currency,
             tipPercentX10 = tipPercentX10,
-            receiptsCached = receiptsCached
+            receiptsCached = receiptsCached,
+            approvedState = approvedState
         )
 
-        // Approved sales: persist the link token for later refund/void.
-        if (!linked && result.state == TransactionState.APPROVED && txnId != null) {
+        // Persist the appSpecificData link token for the success states that need
+        // it later (sale → refund/void; pre-auth → adjust/complete/void). Store
+        // under linkKey when given (pre-auth follow-ons key by the ORIGINAL id so
+        // the chain stays addressable), else the payment's own transaction id.
+        val storeKey = linkKey ?: txnId
+        if (storeKey != null && result.state in linkOnStates) {
             payment?.appSpecificData?.takeIf { it.isNotEmpty() }?.let {
-                linkStore.saveLink(txnId, it)
-                log("link token stored for $txnId")
+                linkStore.saveLink(storeKey, it)
+                log("link token stored for $storeKey")
             }
         }
-        log("${if (linked) "linked op" else "sale"} result: ${result.state} txn=${txnId ?: "-"}")
+        log("result: ${result.state} txn=${txnId ?: "-"}")
         return result
     }
 

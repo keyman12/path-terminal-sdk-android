@@ -20,6 +20,14 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
 
     var voidResult: Result<TransactionResult>? = null
 
+    var preAuthResult: Result<TransactionResult>? = null
+
+    var adjustPreAuthResult: Result<TransactionResult>? = null
+
+    var completePreAuthResult: Result<TransactionResult>? = null
+
+    var voidPreAuthResult: Result<TransactionResult>? = null
+
     /**
      * How the fake "customer" should respond to a Sale whose request has
      * [TransactionRequest.promptForTip] == true. Lets tests exercise the
@@ -189,6 +197,59 @@ class MockPathTerminalAdapter : PathTerminalAdapter {
         maybeDelay()
         return voidResult?.getOrThrow() ?: TransactionResult(
             transactionId = "mock-void-${System.currentTimeMillis()}",
+            requestId = request.envelope.requestId,
+            state = TransactionState.REVERSED,
+            amountMinor = request.amountMinor,
+            currency = request.currency,
+            receiptAvailable = false,
+            timestampUtc = java.time.Instant.now().toString()
+        )
+    }
+
+    override suspend fun preAuth(request: TransactionRequest): TransactionResult {
+        maybeDelay()
+        return preAuthResult?.getOrThrow() ?: TransactionResult(
+            transactionId = "mock-preauth-${System.currentTimeMillis()}",
+            requestId = request.envelope.requestId,
+            state = TransactionState.PREAUTH_HELD,
+            amountMinor = request.amountMinor,
+            currency = request.currency,
+            cardLastFour = "1234",
+            receiptAvailable = true,
+            timestampUtc = java.time.Instant.now().toString()
+        )
+    }
+
+    override suspend fun adjustPreAuth(request: TransactionRequest): TransactionResult {
+        maybeDelay()
+        return adjustPreAuthResult?.getOrThrow() ?: TransactionResult(
+            transactionId = "mock-preauth-adj-${System.currentTimeMillis()}",
+            requestId = request.envelope.requestId,
+            state = TransactionState.PREAUTH_HELD,
+            amountMinor = request.amountMinor,   // the new total hold
+            currency = request.currency,
+            receiptAvailable = false,
+            timestampUtc = java.time.Instant.now().toString()
+        )
+    }
+
+    override suspend fun completePreAuth(request: TransactionRequest): TransactionResult {
+        maybeDelay()
+        return completePreAuthResult?.getOrThrow() ?: TransactionResult(
+            transactionId = "mock-preauth-cap-${System.currentTimeMillis()}",
+            requestId = request.envelope.requestId,
+            state = TransactionState.CAPTURED,
+            amountMinor = request.amountMinor,
+            currency = request.currency,
+            receiptAvailable = false,
+            timestampUtc = java.time.Instant.now().toString()
+        )
+    }
+
+    override suspend fun voidPreAuth(request: TransactionRequest): TransactionResult {
+        maybeDelay()
+        return voidPreAuthResult?.getOrThrow() ?: TransactionResult(
+            transactionId = "mock-preauth-void-${System.currentTimeMillis()}",
             requestId = request.envelope.requestId,
             state = TransactionState.REVERSED,
             amountMinor = request.amountMinor,
