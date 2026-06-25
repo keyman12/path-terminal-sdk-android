@@ -252,12 +252,37 @@ class VerifonePSDKAdapter(
             delay(1500)
             lastStatus = initialize()
         }
+        if (lastStatus == StatusCode.CACHED_CONFIGURATION_MISMATCH) {
+            // Gotcha 14: the PSDK has a DIFFERENT terminal cached in app storage than
+            // ${config.host} — i.e. this app previously connected to another terminal. The cache is
+            // on-device and survives app/device reboots, so a plain teardown can NOT clear it; left
+            // unhandled, every later connect to a new terminal fails (and used to surface as the
+            // misleading "only one client" error). Verifone's "Connect to a terminal" recovery:
+            // clear the POS cache with UseDevice(device, saveDevice=false), tear down, then
+            // re-initialize ONCE against a fresh SDK.
+            log("init -33 CACHED_CONFIGURATION_MISMATCH — cached terminal differs from ${config.host}; clearing PSDK cache + retrying")
+            val stale = try { sdk?.deviceInformation } catch (_: Exception) { null }
+            if (stale != null) {
+                sdk?.UseDevice(stale, false)
+                log("cleared the cached device from PSDK storage")
+            } else {
+                log("no cached device to read — re-initialising fresh anyway")
+            }
+            teardownInternal()
+            delay(1500)
+            lastStatus = initialize()
+        }
         if (lastStatus != StatusCode.SUCCESS) {
             teardownInternal()
+            val hint = when (lastStatus) {
+                -2, -8 -> "a lingering session — ensure no other app is connected and the terminal is idle, then retry"
+                StatusCode.CACHED_CONFIGURATION_MISMATCH ->
+                    "the PSDK still has a different terminal cached even after a clear — clear the app's storage and retry"
+                else -> "check the terminal at ${config.host} is powered, idle and on this network"
+            }
             throw PathError(
                 code = PathErrorCode.CONNECTIVITY,
-                message = "Verifone init failed (PSDK status $lastStatus). Is the terminal at " +
-                    "${config.host} idle and on this network? Only ONE client may be connected.",
+                message = "Verifone init failed (PSDK status $lastStatus) — $hint.",
                 adapterErrorCode = lastStatus.toString(),
                 recoverable = true
             )
