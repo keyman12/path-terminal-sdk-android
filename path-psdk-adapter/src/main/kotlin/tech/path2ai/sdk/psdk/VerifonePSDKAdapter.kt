@@ -393,7 +393,7 @@ class VerifonePSDKAdapter(
         return p()
     }
 
-    /** Pre-flight: device-level connection truth, not tm.state (gotcha 12). */
+    /** Pre-flight: device-level connection truth, not tm.state (gotcha 12). @parity:connection_reconcile:v2 */
     private fun preflight(op: String) {
         val d = sdk?.deviceInformation
         if (d == null || d.state != PaymentDeviceState.CONNECTED) {
