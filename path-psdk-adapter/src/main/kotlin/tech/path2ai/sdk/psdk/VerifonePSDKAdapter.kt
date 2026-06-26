@@ -397,6 +397,11 @@ class VerifonePSDKAdapter(
     private fun preflight(op: String) {
         val d = sdk?.deviceInformation
         if (d == null || d.state != PaymentDeviceState.CONNECTED) {
+            // The link is gone — often a SILENT drop the SDK never fired a -5 event for (idle
+            // timeout, PCI 24h reboot, display wedge). Reconcile through the normal disconnect
+            // chain so onHardwareDisconnect fires and the UI stops claiming "Connected" while every
+            // sale fails (tm.state can still claim SESSION_OPEN after a silent drop — gotcha 12).
+            handleConnectionLost("$op pre-flight: device state ${d?.state?.name ?: "no device info"}")
             throw PathError(
                 code = PathErrorCode.CONNECTIVITY,
                 message = "$op pre-flight failed: terminal not CONNECTED (${d?.state?.name ?: "no device info"})",
