@@ -12,8 +12,9 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         // Verifone PSDK — committed local Maven repo (aar + its real pom, so
-        // transitive deps resolve). The PSDK download is login-gated at
-        // Verifone; partner distribution is pending a licensing answer.
+        // transitive deps resolve). The PSDK is login-gated at Verifone, but Path
+        // HAS redistribution rights — the aar is intentionally vendored here and
+        // ships to partners via JitPack. See ENVIRONMENTS.md "Verifone PSDK binary".
         maven { url = uri("third-party/verifone/m2") }
         // usb-serial-for-android (PSDK transitive dep) lives on JitPack.
         maven { url = uri("https://jitpack.io") }
