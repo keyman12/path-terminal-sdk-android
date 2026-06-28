@@ -34,7 +34,7 @@ dependencies {
     api(project(":path-core-models"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("androidx.annotation:annotation:1.9.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
